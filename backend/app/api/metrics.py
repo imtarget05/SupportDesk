@@ -5,15 +5,19 @@ This file is a thin FastAPI wrapper only. The actual counters live in
 without a circular import through the API layer.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.deps import require_agent
 from app.services import metrics as _metrics
 
 router = APIRouter(tags=["metrics"])  # prefix added by include_router in main.py
 
 
-@router.get("/metrics", include_in_schema=False)
-def get_metrics():
+# Operational counters only — agent-scoped. It used to be anonymous and
+# hidden from the schema, which made an unauthenticated capability invisible
+# to anyone reviewing the API contract.
+@router.get("/metrics")
+def get_metrics(_agent=Depends(require_agent)):
     return _metrics.get_metrics_data()
 
 

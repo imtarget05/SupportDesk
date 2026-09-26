@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
+from app import rate_limit
+from app.config import settings
 from app.database import get_db
 from app.deps import get_current_user, get_optional_user, require_agent
 from app.enums import TicketCategory, TicketPriority, TicketStatus
@@ -23,6 +25,7 @@ router = APIRouter(prefix="/api/tickets", tags=["tickets"])
 @router.post("", response_model=TicketOut, status_code=status.HTTP_201_CREATED)
 def create_ticket(
     body: TicketCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User | None = Depends(get_optional_user),
 ) -> TicketOut:
@@ -34,6 +37,25 @@ def create_ticket(
             )
         customer = user
     else:
+        # Guest submission without an account is a deliberate product decision
+        # (the public contact form must work before signup), so the only
+        # identity available is the peer address, and that is the bucket key.
+        # The limit bounds row creation; a body that fails schema validation is
+        # rejected by FastAPI before this handler runs and creates nothing, so
+        # it is deliberately not charged against the budget.
+        peer = request.client.host if request.client else "unknown"
+        try:
+            rate_limit.check(
+                f"ticket-create:{peer}",
+                limit=settings.ticket_create_rate_limit,
+                window_s=settings.ticket_create_rate_window_s,
+            )
+        except rate_limit.RateLimitExceeded as exc:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Too many guest tickets; retry in {exc.retry_after_s}s",
+                headers={"Retry-After": str(exc.retry_after_s)},
+            )
         if not body.customer_email:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

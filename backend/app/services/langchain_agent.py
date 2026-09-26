@@ -2,7 +2,7 @@
 
 This module provides a unified interface for LLM operations using LangChain.
 It wraps the existing AI providers (stub, OpenAI, Cloudflare) in LangChain's
-interface, enabling the LangGraph workflow to use them interchangeably.
+interface, enabling the ticket pipeline to use them interchangeably.
 
 The agent provides:
     - LLM invocation for classification and generation
@@ -25,7 +25,7 @@ class LangChainAgent:
     """LangChain-based agent for support ticket operations.
 
     Wraps the existing AI providers in LangChain's interface for use
-    in the LangGraph workflow.
+    in the ticket processing pipeline.
     """
 
     def __init__(self, provider: str | None = None):

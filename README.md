@@ -15,14 +15,16 @@
 ## 🚀 Key Features
 
 *   **Ticket Lifecycle State Machine**: Robust backend-enforced state transitions (`OPEN` → `IN_PROGRESS` → `WAITING` → `RESOLVED` → `CLOSED`) preventing illegal updates.
+*   **Optimistic Concurrency**: Status changes are written with a conditional `UPDATE ... WHERE status = <validated>`, so two agents patching one ticket produce a `409` rather than a silent last-write-win.
 *   **AI Ticket Classification**: Automatic categorization of incoming tickets (category, priority, summary) with associated confidence scores.
 *   **AI Suggested Responses**: Context-aware draft replies generated using current ticket context, internal support policies, and similar resolved tickets.
-*   **Similar Ticket Retrieval**: Embedding-based cosine similarity search to surface relevant historical tickets.
+*   **Similar Ticket Retrieval**: Cosine similarity over a deterministic 128-dim hashed bag-of-words embedding of each ticket, to surface relevant historical tickets. (The knowledge-base RAG index is separate and does use `sentence-transformers`.)
 *   **Agent Dashboard**: Real-time operational statistics, advanced filtering, and pagination.
 *   **Multi-Provider AI Strategy**: Seamlessly switch between Cloudflare Workers AI (Llama 3.1), OpenAI-compatible endpoints, or a stub mode for offline/isolated testing.
 *   **Evaluation Pipeline**: Built-in automated evaluation suite measuring accuracy, macro-F1, and per-category F1 on ~100 labeled tickets.
 *   **Enterprise-Grade Security**: JWT-based authentication (PBKDF2-HMAC-SHA256), strict CORS configurations, security headers, and AI output guardrails.
 *   **Email Integration**: Secure inbound email webhook handling with HMAC-SHA256 signature verification.
+*   **Guest Ticket Submission**: `POST /api/tickets` intentionally accepts unauthenticated submissions (the public contact form must work before signup), rate limited per client IP — see below.
 
 ---
 
@@ -102,7 +104,7 @@ The backend exposes a comprehensive RESTful API.
 | :--- | :--- | :--- |
 | `POST` | `/api/auth/login` | Authenticate user & get JWT |
 | `POST` | `/api/auth/register` | Register new user account |
-| `POST` | `/api/tickets` | Create a new support ticket |
+| `POST` | `/api/tickets` | Create a new support ticket (guest submissions allowed, per-IP rate limited) |
 | `GET` | `/api/tickets` | List tickets (with filters & pagination) |
 | `GET` | `/api/tickets/{id}` | Retrieve ticket details |
 | `PATCH` | `/api/tickets/{id}` | Update status/priority (Agent only) |
@@ -110,8 +112,17 @@ The backend exposes a comprehensive RESTful API.
 | `POST` | `/api/tickets/{id}/ai/analyze` | Trigger AI classification |
 | `POST` | `/api/tickets/{id}/ai/suggest` | Generate AI response draft |
 | `GET` | `/api/tickets/{id}/similar` | Retrieve similar resolved tickets |
-| `GET` | `/api/dashboard/stats` | Retrieve agent dashboard statistics |
+| `GET` | `/api/dashboard/stats` | Retrieve agent dashboard statistics (Agent only) |
+| `GET` | `/api/metrics` | AI call / error / latency counters (Agent only) |
 | `GET` | `/api/health` | System health check |
+
+---
+
+## 🔒 Security Model
+
+*   **Authentication** — every endpoint under `/api/tickets`, `/api/dashboard` and `/api/metrics` requires a JWT except the guest submission path below. `/api/metrics` exposes operational counters (AI call count, error count, p50 latency) and is agent-scoped.
+*   **Guest submissions are deliberate, and rate limited** — `POST /api/tickets` creates a ticket row and, for anonymous callers, a customer row, without authentication. That is a product decision: the public contact form has to work before signup. The control that bounds it is a per-client-IP limit (`TICKET_CREATE_RATE_LIMIT`, default `10` per `TICKET_CREATE_RATE_WINDOW_S`, default `3600`s) returning `429` with a `Retry-After` header. Authenticated submitters are not charged against that budget, because they are already attributable to an account. The bucket is keyed on the peer address rather than the `X-Forwarded-For` header, which a client could spoof to defeat the limit; behind a TLS-terminating proxy, run uvicorn with `--proxy-headers --forwarded-allow-ips=<proxy>` so the real client address is resolved.
+*   **No PII redaction, no SLA engine** — neither is implemented. The AI guardrails are deterministic checks against refund/compensation commitments, ungrounded factual claims and prompt-injection echo. `docs/spec.md` lists SLA monitoring, multi-tenancy and fine-grained RBAC as explicitly out of scope.
 
 ---
 

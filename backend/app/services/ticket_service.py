@@ -1,6 +1,6 @@
 """Ticket domain logic. Routers stay thin; rules live here."""
 
-from sqlalchemy import func
+from sqlalchemy import func, update
 from sqlalchemy.orm import Session
 
 from app.enums import (
@@ -98,12 +98,34 @@ def update_ticket(
     status: TicketStatus | None = None,
     priority: TicketPriority | None = None,
 ) -> Ticket:
-    """Agent-only lifecycle control. Priority is agent-adjustable anytime."""
+    """Agent-only lifecycle control. Priority is agent-adjustable anytime.
+
+    A status change is written with a conditional UPDATE guarded on the status
+    that was validated against, so two agents patching the same ticket cannot
+    silently overwrite each other. Under PostgreSQL's READ COMMITTED isolation
+    a plain read-then-write is last-write-win; here the guard turns a losing
+    race into 0 rows affected, which is reported as a conflict instead.
+    """
     if status is not None:
         current = TicketStatus(ticket.status)
         if status != current:
             validate_transition(current, status)  # raises InvalidTransition
-            ticket.status = status.value
+            rows = db.execute(
+                update(Ticket)
+                .where(Ticket.id == ticket.id, Ticket.status == current.value)
+                .values(status=status.value)
+                .execution_options(synchronize_session=False)
+            ).rowcount
+            if rows == 0:
+                # Someone else moved the ticket between our read and our write.
+                db.rollback()
+                latest = db.get(Ticket, ticket.id)
+                actual = TicketStatus(latest.status) if latest is not None else current
+                db.expire(ticket)
+                raise InvalidTransition(actual, status)
+            # Drop the stale in-memory value so the flush below cannot re-issue
+            # an unguarded UPDATE; the real value is re-read by the refresh().
+            db.expire(ticket)
     if priority is not None:
         ticket.priority = priority.value
     db.commit()

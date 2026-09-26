@@ -38,7 +38,7 @@ services:
       - ALEMBIC_MIGRATE=true
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required - export a 32+ char secret before 'docker compose up'}
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     restart: on-failure
     depends_on:
       db:

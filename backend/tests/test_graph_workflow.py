@@ -1,4 +1,4 @@
-"""Tests for the LangGraph workflow service."""
+"""Tests for the ticket processing pipeline service."""
 
 import pytest
 

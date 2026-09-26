@@ -38,9 +38,10 @@
 | `JWT_SECRET` | Random ≥32 chars. Never commit or bake into image. Rotate → all sessions logout. |
 | `ENVIRONMENT` | `production` (enables Postgres-only + strict CORS fail-fast). |
 | `ALEMBIC_MIGRATE` | `true` — idempotent `upgrade head` at boot. |
-| `AI_PROVIDER` / `AI_EMBED_PROVIDER` | `cloudflare` / `bow` — real LLM `@cf/meta/llama-3.1-8b-instruct` via Workers AI. Needs `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` (token must have **Workers AI → Run**; verify with `ai/run` → 200). A draft that fails the safety guardrail (e.g. promises a refund) returns **502 by design** — retry produces a fresh draft. |
+| `AI_PROVIDER` / `AI_EMBED_PROVIDER` | `cloudflare` / `bow` — real LLM `@cf/meta/llama-3.1-8b-instruct` via Workers AI. Needs `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` (token must have **Workers AI → Run**; verify with `ai/run` → 200). A draft that fails the safety guardrail (e.g. promises a refund) returns **502 by design** — retry produces a fresh draft. `AI_EMBED_PROVIDER` currently accepts only `bow` in practice: the similar-ticket embedder always uses the deterministic 128-dim hashed bag-of-words `embed()`, so `hf` does not change persisted vectors. |
 | `BOOTSTRAP_TOKEN` | Random ≥8 chars, set **before first deploy**; blank after bootstrap (§4). |
 | `CORS_ORIGINS` | Set AFTER Pages deploy: `https://<app>.pages.dev`, then redeploy API. |
+| `TICKET_CREATE_RATE_LIMIT` / `TICKET_CREATE_RATE_WINDOW_S` | Guest (unauthenticated) `POST /api/tickets` allowance, default `10` per `3600`s, keyed on the real client IP. Returned as `429` + `Retry-After`. `0` disables. Authenticated submitters are not charged. |
 
 ## 3. Verify API health + migrate
 
@@ -99,7 +100,7 @@ curl -X POST https://<api>.onrender.com/api/auth/bootstrap \
 ## 9. Known limits (launch)
 
 - Free-tier sleep: API cold-starts ~30–60s after idle; Pages shows its loading state meanwhile. Upgrade to Starter if always-on is needed.
-- First Docker build is slow (torch/sentence-transformers). Keep `AI_EMBED_PROVIDER=bow` on free tier to avoid OOM.
+- First Docker build is slow (torch/sentence-transformers back the knowledge-base RAG index). Similar-ticket retrieval already runs on the dependency-free hashed bag-of-words embedder, so it needs no model download.
 - `VITE_API_URL` is bake-time: any backend URL change needs a Pages rebuild + redeploy.
 
 ---

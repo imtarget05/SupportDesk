@@ -18,10 +18,19 @@ ALLOWED_TRANSITIONS: dict[TicketStatus, set[TicketStatus]] = {
 
 
 class InvalidTransition(Exception):
+    """Rejected status change — maps to HTTP 409.
+
+    Raised both for an illegal edge in the lifecycle graph and for a
+    transition that lost an optimistic-concurrency race (the ticket is no
+    longer in the state the caller validated against).
+    """
+
     def __init__(self, current: TicketStatus, target: TicketStatus):
         self.current = current
         self.target = target
-        super().__init__(f"Illegal status transition: {current.value} → {target.value}")
+        super().__init__(
+            f"Illegal or conflicting status transition: {current.value} → {target.value}"
+        )
 
 
 def validate_transition(current: TicketStatus, target: TicketStatus) -> None:

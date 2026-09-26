@@ -1,6 +1,10 @@
-"""LangGraph workflow orchestration for support ticket processing.
+"""Ticket processing pipeline for AI-assisted support.
 
-This module implements the control plane for the AI-assisted support workflow:
+This module implements the control plane for the AI-assisted support workflow. It is a
+straight-line sequence of stage methods over a shared `TicketState`; no external
+graph/orchestration framework is involved.
+
+Stages:
     classify_ticket -> retrieve_context -> draft_answer -> confidence_check
                                                               |
                                           -------------------+-------------------
@@ -107,7 +111,7 @@ class WorkflowResult:
     error: str | None = None
 
 class TicketProcessingGraph:
-    """LangGraph-based workflow for processing support tickets.
+    """Four-stage pipeline for processing support tickets.
 
     Implements the control plane that orchestrates:
     1. Ticket classification

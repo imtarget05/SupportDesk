@@ -16,10 +16,19 @@ os.environ.setdefault("SMTP_FROM", "")
 import pytest
 from fastapi.testclient import TestClient
 
+from app import rate_limit
 from app.database import Base, SessionLocal, engine
 from app.main import app
 from app.models import User
 from app.security import hash_password
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """Rate-limit buckets are process-global; clear them between tests."""
+    rate_limit.reset()
+    yield
+    rate_limit.reset()
 
 
 @pytest.fixture()

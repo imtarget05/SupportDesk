@@ -5,7 +5,7 @@
 - suggest: returns a draft reply. NEVER sends it — the agent must post a message
   explicitly through the normal message endpoint.
 - similar: resolved/closed tickets ranked by embedding cosine similarity.
-- workflow: full LangGraph workflow (classify -> retrieve -> draft -> confidence check).
+- workflow: full ticket pipeline (classify -> retrieve -> draft -> confidence check).
 - knowledge: knowledge base statistics and management.
 """
 
@@ -98,7 +98,7 @@ def workflow(
     db: Session = Depends(get_db),
     agent=Depends(require_agent),
 ) -> dict:
-    """Run the full LangGraph workflow for a ticket.
+    """Run the full ticket processing pipeline for a ticket.
 
     This endpoint orchestrates:
     1. Ticket classification (category, priority, summary, confidence)

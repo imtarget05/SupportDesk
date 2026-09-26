@@ -93,6 +93,14 @@ class Settings:
     # Embedder: "bow" (hashed bag-of-words, offline default) | "hf" (sentence-transformers, lazy-load, BoW fallback)
     ai_embed_provider: str = os.getenv("AI_EMBED_PROVIDER", "bow")
 
+    # Guest (unauthenticated) ticket submissions are rate limited per peer IP.
+    # Set the limit to 0 to disable. Authenticated submitters are not counted:
+    # they are already attributable to an account.
+    ticket_create_rate_limit: int = int(os.getenv("TICKET_CREATE_RATE_LIMIT", "10"))
+    ticket_create_rate_window_s: float = float(
+        os.getenv("TICKET_CREATE_RATE_WINDOW_S", "3600")
+    )
+
     # Email provider: "stub" | "log" | "smtp"
     email_provider: str = os.getenv("EMAIL_PROVIDER", "stub")
     smtp_host: str = os.getenv("SMTP_HOST", "")

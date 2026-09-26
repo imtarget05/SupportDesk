@@ -5,7 +5,7 @@ This module provides:
     - Vector index construction
     - Retriever for relevant evidence given a query
 
-The knowledge base is used by the LangGraph workflow to retrieve relevant
+The knowledge base is used by the ticket processing pipeline to retrieve relevant
 context before drafting a response. Retrieved evidence includes source
 metadata for citation and audit.
 """
