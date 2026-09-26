@@ -52,7 +52,7 @@ graph TD
 ### Backend
 *   **Core**: Python, FastAPI, SQLAlchemy, Alembic
 *   **Database**: PostgreSQL (Production) / SQLite (Dev/Test)
-*   **AI & ML**: LangGraph, LangChain, LlamaIndex, sentence-transformers, scikit-learn
+*   **AI & ML**: sentence-transformers, scikit-learn, Vector Similarity Search
 *   **Security**: JWT Auth (PBKDF2-HMAC-SHA256)
 
 ### Frontend
