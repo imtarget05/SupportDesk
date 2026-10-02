@@ -43,8 +43,6 @@ def _is_deployment() -> bool:
         "prod",
         "staging",
     }
-
-
 def _as_bool(value: str | None, default: bool) -> bool:
     if value is None:
         return default
@@ -122,6 +120,42 @@ class Settings:
     # OpenAI-compatible (kept as an alternative provider)
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     openai_base_url: str = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+
+    # Anthropic (Claude). ANTHROPIC_MODEL defaults to a current Claude model.
+    anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
+    anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5")
+    anthropic_max_tokens: int = int(os.getenv("ANTHROPIC_MAX_TOKENS", "800"))
+
+    # OpenTelemetry GenAI tracing. Off by default: the app stays free of
+    # exporter side effects unless this is switched on, and the in-process
+    # counters in services/metrics.py keep working either way.
+    otel_enabled: bool = _as_bool(os.getenv("OTEL_ENABLED"), default=False)
+    otel_service_name: str = os.getenv("OTEL_SERVICE_NAME", "supportdesk-ai")
+    otel_otlp_endpoint: str = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+
+    # Vector store backend for the knowledge base.
+    #   llama_index — in-process LlamaIndex index (default, no extra service)
+    #   qdrant      — Qdrant client; falls back to llama_index if unreachable
+    ai_vector_store: str = os.getenv("AI_VECTOR_STORE", "llama_index")
+    qdrant_url: str = os.getenv("QDRANT_URL", "")
+    qdrant_api_key: str = os.getenv("QDRANT_API_KEY", "")
+    qdrant_collection: str = os.getenv("QDRANT_COLLECTION", "support_kb")
+    # Local on-disk path used when Qdrant runs in embedded mode.
+    qdrant_path: str = os.getenv("QDRANT_PATH", "")
+
+    # Temporal durable workflows. Off by default so tests and dev runs need no
+    # Temporal server; the in-process runner in app/workflows/local_runner.py
+    # executes the same definitions when this is false.
+    temporal_enabled: bool = _as_bool(os.getenv("TEMPORAL_ENABLED"), default=False)
+    temporal_host: str = os.getenv("TEMPORAL_HOST", "localhost:7233")
+    temporal_namespace: str = os.getenv("TEMPORAL_NAMESPACE", "default")
+    temporal_task_queue: str = os.getenv("TEMPORAL_TASK_QUEUE", "supportdesk")
+    # Per-activity timeout for one workflow stage, in seconds.
+    workflow_stage_timeout_s: int = int(os.getenv("WORKFLOW_STAGE_TIMEOUT_S", "120"))
+
+    # Max tool-calling steps for the agent loop, so a confused model cannot
+    # spin forever.
+    tool_max_steps: int = int(os.getenv("TOOL_MAX_STEPS", "6"))
 
     alembic_migrate: bool = _as_bool(
         os.getenv("ALEMBIC_MIGRATE"), default=_is_deployment()
