@@ -1,4 +1,11 @@
-from app.schemas.ai import AISuggestionOut, SimilarTicketOut, SimilarTicketsOut
+from app.schemas.ai import (
+    AgentRunOut,
+    AISuggestionOut,
+    SimilarTicketOut,
+    SimilarTicketsOut,
+    ToolCallOut,
+    WorkflowRunOut,
+)
 from app.schemas.auth import (
     BootstrapRequest,
     LoginRequest,
@@ -18,7 +25,10 @@ from app.schemas.tickets import (
 )
 
 __all__ = [
+    "AgentRunOut",
     "AISuggestionOut",
+    "ToolCallOut",
+    "WorkflowRunOut",
     "SimilarTicketOut",
     "SimilarTicketsOut",
     "LoginRequest",
