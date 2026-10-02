@@ -1,9 +1,18 @@
-"""Lightweight similar-ticket retrieval (embedding + cosine similarity).
+"""Similar-ticket retrieval (embedding + cosine similarity).
 
-Embeddings are stored in `ticket_embeddings` as JSON float lists; similarity
-runs in Python, which is fine at MVP scale. The stub embedder is a hashed
-bag-of-words vector — deterministic and dependency-free. Swap via
-AI_EMBED_PROVIDER env later if a real embedding model is wired in.
+Embeddings are stored in `ticket_embeddings` as JSON float lists, alongside the
+embedder id and width that produced them. Similarity runs in Python, which is
+fine at MVP scale.
+
+``AI_EMBED_PROVIDER`` selects the embedder and genuinely takes effect on the
+persistence path (``ensure_embedding`` -> ``embed_text``):
+    bow — default; hashed bag-of-words, 128-dim, deterministic, no network.
+    hf  — ``sentence-transformers/all-MiniLM-L6-v2`` (384-dim), lazy-loaded,
+           falling back to the bag-of-words embedder when the model or the
+           dependency is unavailable.
+
+Rows written by a different embedder are recomputed rather than compared, since
+cosine similarity across different embedding spaces is not meaningful.
 """
 
 import hashlib
@@ -68,8 +77,12 @@ def embed_text(text: str) -> list[float]:
 
 
 def get_embed_dim() -> int:
-    from app.config import settings
-    if settings.ai_embed_provider == "hf" and _HF_MODEL is not None:
+    """Width of the vectors the active provider will produce.
+
+    Returns the width of a real MiniLM vector when the HF embedder is loaded,
+    otherwise the deterministic bag-of-words width.
+    """
+    if _HF_MODEL is not None:
         return len(_HF_MODEL.encode(["probe"], normalize_embeddings=True)[0])
     return EMBED_DIM
 
@@ -82,13 +95,45 @@ def _decode(raw: str) -> list[float]:
     return json.loads(raw)
 
 
+def active_embedder_id() -> str:
+    """Identifier for the embedder currently selected by ``AI_EMBED_PROVIDER``.
+
+    Recorded next to every persisted vector so a later provider switch cannot
+    be scored against vectors it did not produce.
+    """
+    from app.config import settings
+    return "hf-minilm-l6-v2" if settings.ai_embed_provider == "hf" else "bow-sha256"
+
+
 def ensure_embedding(db: Session, ticket: Ticket) -> list[float]:
-    """Compute and persist the ticket embedding if absent; return the vector."""
+    """Return the ticket vector, computing and persisting it if needed.
+
+    The vector is produced by ``embed_text``, so ``AI_EMBED_PROVIDER`` actually
+    takes effect on this path — not only on the ``embed_text`` call site. A row
+    written by a different embedder (or of a different width) is recomputed
+    rather than reused, because cosine similarity across incompatible
+    embeddings is meaningless.
+    """
+    wanted_model = active_embedder_id()
     row = db.get(TicketEmbedding, ticket.id)
     if row is not None:
-        return _decode(row.embedding)
-    vector = embed(f"{ticket.subject} {ticket.description}")
-    db.add(TicketEmbedding(ticket_id=ticket.id, embedding=_encode(vector)))
+        stored = _decode(row.embedding)
+        if row.model == wanted_model and len(stored) == row.dim:
+            return stored
+    vector = embed_text(f"{ticket.subject} {ticket.description}")
+    if row is None:
+        db.add(
+            TicketEmbedding(
+                ticket_id=ticket.id,
+                embedding=_encode(vector),
+                model=wanted_model,
+                dim=len(vector),
+            )
+        )
+    else:
+        row.embedding = _encode(vector)
+        row.model = wanted_model
+        row.dim = len(vector)
     db.commit()
     return vector
 

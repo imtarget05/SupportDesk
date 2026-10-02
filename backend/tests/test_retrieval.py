@@ -9,17 +9,58 @@ def test_embed_provider_setting_defaults_to_bow():
 
 
 def test_embed_text_dispatches_and_falls_back_offline(monkeypatch):
+    """embed_text honours the provider and falls back to BoW when HF is absent.
+
+    The BoW width is asserted exactly, not as ``len in (128, 384)``: a loose
+    length check passes even when the provider setting is ignored, which is how
+    the original ``ensure_embedding`` defect stayed hidden.
+    """
     import dataclasses
     from app import config as config_module
     from app.services import retrieval_service
+
     vec = retrieval_service.embed_text("refund my charge twice")
-    assert isinstance(vec, list) and len(vec) in (128, 384)
+    assert isinstance(vec, list) and len(vec) == retrieval_service.EMBED_DIM
+
     monkeypatch.setattr(
         config_module, "settings",
         dataclasses.replace(config_module.settings, ai_embed_provider="hf"),
     )
+    # Force the offline path explicitly: without this, a machine with a warm
+    # MiniLM cache would return 384-dim and the test would depend on the host.
+    monkeypatch.setattr(retrieval_service, "_embed_hf", lambda texts: None)
     vec2 = retrieval_service.embed_text("login locked out")
-    assert isinstance(vec2, list) and len(vec2) in (128, 384)
+    assert isinstance(vec2, list) and len(vec2) == retrieval_service.EMBED_DIM
+
+
+def test_embed_text_returns_hf_width_when_model_loaded(monkeypatch):
+    """With the MiniLM embedder loaded, embed_text returns its 384-dim vector."""
+    import dataclasses
+    from app import config as config_module
+    from app.services import retrieval_service
+
+    monkeypatch.setattr(
+        config_module, "settings",
+        dataclasses.replace(config_module.settings, ai_embed_provider="hf"),
+    )
+    monkeypatch.setattr(
+        retrieval_service, "_embed_hf",
+        lambda texts: [[0.5] * 384 for _ in texts],
+    )
+    assert len(retrieval_service.embed_text("refund requested")) == 384
+
+
+def test_active_embedder_id_tracks_provider_setting(monkeypatch):
+    import dataclasses
+    from app import config as config_module
+    from app.services import retrieval_service
+
+    assert retrieval_service.active_embedder_id() == "bow-sha256"
+    monkeypatch.setattr(
+        config_module, "settings",
+        dataclasses.replace(config_module.settings, ai_embed_provider="hf"),
+    )
+    assert retrieval_service.active_embedder_id() == "hf-minilm-l6-v2"
 
 RESOLVED_DESCRIPTION = (
     "Since updating the iOS app to 4.2 logging in bounces me back to the welcome screen "
@@ -93,6 +134,93 @@ def test_embedding_persisted_and_reused(client, agent_headers, db_session):
     # Second call must not duplicate the row.
     client.get(f"/api/tickets/{ticket_id}/similar", headers=agent_headers)
     assert db_session.query(TicketEmbedding).filter_by(ticket_id=ticket_id).count() == 1
+
+
+def test_persisted_embedding_records_embedder_and_width(client, agent_headers, db_session):
+    """The stored row says which embedder produced it and how wide it is."""
+    import json
+
+    from app.models import TicketEmbedding
+
+    ticket_id = create_ticket(client).json()["id"]
+    client.get(f"/api/tickets/{ticket_id}/similar", headers=agent_headers)
+    row = db_session.query(TicketEmbedding).filter_by(ticket_id=ticket_id).one()
+    assert row.model == "bow-sha256"
+    assert row.dim == 128
+    assert len(json.loads(row.embedding)) == row.dim
+
+
+def test_ensure_embedding_honours_hf_provider(db_session, customer_user, monkeypatch):
+    """Regression: ``ensure_embedding`` must not bypass ``AI_EMBED_PROVIDER``.
+
+    The original implementation called the bag-of-words ``embed()`` directly,
+    so setting ``AI_EMBED_PROVIDER=hf`` changed ``embed_text`` but every
+    persisted vector and every similarity score stayed 128-dim. This asserts
+    the persistence path itself follows the setting.
+    """
+    import dataclasses
+    import json
+
+    from app import config as config_module
+    from app.models import Ticket, TicketEmbedding
+    from app.services import retrieval_service
+
+    ticket = Ticket(
+        customer_id=customer_user.id,
+        subject="Refund for double charge",
+        description="Charged twice",
+    )
+    db_session.add(ticket)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        config_module, "settings",
+        dataclasses.replace(config_module.settings, ai_embed_provider="hf"),
+    )
+    # Stand in for a loaded MiniLM: 384-dim, deterministic, no network.
+    monkeypatch.setattr(
+        retrieval_service, "_embed_hf",
+        lambda texts: [[float(len(t)) / 100.0] * 384 for t in texts],
+    )
+
+    vector = retrieval_service.ensure_embedding(db_session, ticket)
+    assert len(vector) == 384
+
+    row = db_session.query(TicketEmbedding).filter_by(ticket_id=ticket.id).one()
+    assert row.model == "hf-minilm-l6-v2"
+    assert row.dim == 384
+    assert len(json.loads(row.embedding)) == 384
+
+
+def test_stale_embedding_is_recomputed_on_provider_switch(db_session, customer_user, monkeypatch):
+    """A vector from another embedder is never reused or compared."""
+    import dataclasses
+
+    from app import config as config_module
+    from app.models import Ticket
+    from app.services import retrieval_service
+
+    ticket = Ticket(
+        customer_id=customer_user.id,
+        subject="Login locked out",
+        description="Cannot sign in at all",
+    )
+    db_session.add(ticket)
+    db_session.commit()
+
+    first = retrieval_service.ensure_embedding(db_session, ticket)
+    assert len(first) == 128
+
+    monkeypatch.setattr(
+        config_module, "settings",
+        dataclasses.replace(config_module.settings, ai_embed_provider="hf"),
+    )
+    monkeypatch.setattr(
+        retrieval_service, "_embed_hf",
+        lambda texts: [[0.25] * 384 for _ in texts],
+    )
+    second = retrieval_service.ensure_embedding(db_session, ticket)
+    assert len(second) == 384, "stale 128-dim vector was reused across embedders"
 
 
 def test_cosine_similarity_known_values():
