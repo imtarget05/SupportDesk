@@ -46,12 +46,31 @@ GROUNDING_PATTERNS: list[re.Pattern[str]] = [
 # Clear prompt-injection markers. If echoed into an AI summary/classification
 # (or found in category/priority) the result is treated as steered and refused.
 INJECTION_MARKERS: list[re.Pattern[str]] = [
-    re.compile(r"(?:ignore|disregard)\s+(?:previous|above|all)\s+instructions?", re.I),
+    # Allow filler between the words: real attempts are phrased "ignore all
+    # previous instructions", which the tighter pattern missed.
+    re.compile(
+        r"(?:ignore|disregard|forget)\b[^.!?\n]{0,40}?\b(?:instructions?|prompts?|rules?|directions?)",
+        re.I,
+    ),
     re.compile(r"reveal(?:ing)?\s+(?:your\s+)?system\s+prompt", re.I),
     re.compile(r"system\s+override", re.I),
     re.compile(r"you\s+are\s+now\s+(?:a|an|the|in)", re.I),
     re.compile(r"pretend\s+(?:you\s+are|to\s+be)", re.I),
+    re.compile(r"\byou\s+are\s+in\s+developer\s+mode\b", re.I),
 ]
+
+# Internal details that must never reach a customer. A tool failure is reported
+# back to the model as text, and a model that echoes it into its draft would
+# otherwise turn "no such table: tickets" into a customer-facing reply. These
+# patterns catch infrastructure and error text rather than promises, which
+# COMMITMENT_PATTERNS above already covers.
+INTERNAL_DETAIL_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"\b(?:operationalerror|integrityerror|sqlalchemy|traceback)\b", re.I),
+    re.compile(r"\bno such table\b", re.I),
+    re.compile(r"\b(?:internal\s+)?(?:server|stack)\s+trace\b", re.I),
+    re.compile(r"\b(?:sqlite|postgresql|psycopg2|sqlalchemy)\.\w+\b", re.I),
+]
+
 
 # Neutral draft returned in ``fallback`` mode when the guardrail fires.
 SAFE_FALLBACK_DRAFT = (
@@ -82,6 +101,12 @@ def assert_safe_draft(draft: str, thread: str = "") -> None:
         raise GuardrailError(
             "guardrail: draft contains disallowed commitment "
             f"({'; '.join(hits)})"
+        )
+
+    leaked = flagged_patterns(draft, INTERNAL_DETAIL_PATTERNS)
+    if leaked:
+        raise GuardrailError(
+            f"guardrail: draft leaks internal detail ({'; '.join(leaked)})"
         )
 
     thread_lower = thread.lower()
