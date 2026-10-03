@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,6 +80,15 @@ class KnowledgeBase:
 
         return len(self._documents)
 
+    def ingest_documents(self, force: bool = False) -> list[dict[str, Any]]:
+        """Ingest if needed and return the raw document dicts.
+
+        Exposed so an alternative vector store (see `services/vector_store.py`)
+        can index the same source of truth rather than re-reading the directory.
+        """
+        self.ingest(force=force)
+        return list(self._documents)
+
     def _build_index(self) -> None:
         """Build the LlamaIndex vector index from ingested documents."""
         try:
@@ -112,9 +123,24 @@ class KnowledgeBase:
             self._retriever = None
 
     def retrieve(self, query: str, top_k: int = 3) -> list[Evidence]:
-        """Retrieve relevant evidence for a query."""
+        """Retrieve relevant evidence for a query.
+
+        Uses Qdrant when ``AI_VECTOR_STORE=qdrant`` and the client is reachable,
+        otherwise this module's own LlamaIndex index. The Qdrant path falls back
+        here on any failure: degraded retrieval is better than a broken feature.
+        """
         if not self._documents:
             self.ingest()
+
+        if settings.ai_vector_store == "qdrant":
+            from app.services.vector_store import get_qdrant_store
+
+            store = get_qdrant_store()
+            if store is not None:
+                try:
+                    return store.retrieve(query, top_k)
+                except Exception as exc:  # noqa: BLE001 — degrade, never break
+                    logger.warning("Qdrant retrieval failed (%s); using LlamaIndex", exc)
 
         if not self._documents:
             return []
@@ -167,10 +193,13 @@ class KnowledgeBase:
 
     def get_stats(self) -> dict[str, Any]:
         """Return statistics about the knowledge base."""
+        from app.services.vector_store import active_backend
+
         return {
             "documents_loaded": len(self._documents),
             "index_built": self._index is not None,
             "knowledge_dir": self._knowledge_dir,
+            "vector_store": active_backend(),
         }
 
 
