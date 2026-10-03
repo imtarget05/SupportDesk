@@ -63,6 +63,11 @@ def _percentile(values: list[float], pct: float) -> float:
 
 def run_suite(limit: int | None = None) -> dict:
     """Run the dataset through the active provider and collect every metric."""
+    from app.database import Base, engine
+    import app.models  # noqa: F401
+
+    Base.metadata.create_all(bind=engine)
+
     from app.services import ai_service, metrics, pricing
 
     data = load_dataset()
@@ -182,9 +187,8 @@ def run_suite(limit: int | None = None) -> dict:
             "per_ticket": round(total_tokens / n, 1) if n else 0.0,
         },
     }
-    ordered = sorted(values)
-    index = min(len(ordered) - 1, int(round((pct / 100) * len(ordered) + 0.5)) - 1)
-    return ordered[max(0, index)]
+
+
 def check_regression(current: dict, baseline: dict) -> list[str]:
     """Human-readable regression failures; empty list means no regression."""
     problems: list[str] = []

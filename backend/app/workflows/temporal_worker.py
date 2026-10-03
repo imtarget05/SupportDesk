@@ -20,6 +20,9 @@ from app.workflows.definitions import (
     TicketProcessingWorkflow,
     TicketWorkflowInput,
     TicketWorkflowResult,
+    activity_classify,
+    activity_draft,
+    activity_retrieve,
 )
 from app.workflows.pipeline import Pipeline
 
@@ -116,7 +119,7 @@ async def run_worker() -> None:
         client,
         task_queue=settings.temporal_task_queue,
         workflows=[TicketProcessingWorkflow],
-        activities=[pipeline.classify, pipeline.retrieve, pipeline.draft],
+        activities=[activity_classify, activity_retrieve, activity_draft],
     )
     logger.info("Temporal worker started on task queue %s", settings.temporal_task_queue)
     try:

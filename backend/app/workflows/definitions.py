@@ -58,6 +58,7 @@ class TicketWorkflowInput:
     description: str
     thread: str = ""
     request_id: str = ""
+    timeout_seconds: int = 120
 
 
 @dataclass
@@ -117,6 +118,7 @@ def needs_approval(draft: str, category: str) -> tuple[bool, str]:
 # --------------------------------------------------------------- activities
 
 
+@activity.defn
 def activity_classify(payload: dict[str, Any]) -> dict[str, Any]:
     """Activity: triage the ticket through the configured AI provider."""
     from app.services import ai_service
@@ -132,6 +134,7 @@ def activity_classify(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@activity.defn
 def activity_retrieve(payload: dict[str, Any]) -> dict[str, Any]:
     """Activity: pull knowledge-base evidence for the ticket."""
     from app.services.knowledge_base import get_knowledge_base
@@ -146,6 +149,7 @@ def activity_retrieve(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@activity.defn
 def activity_draft(payload: dict[str, Any]) -> dict[str, Any]:
     """Activity: draft a reply grounded in the retrieved evidence."""
     from app.services import ai_service
@@ -199,7 +203,8 @@ class TicketProcessingWorkflow:
     @workflow.run
     async def run(self, request: TicketWorkflowInput) -> TicketWorkflowResult:
         pipeline = get_pipeline()
-        timeout = timedelta(seconds=stage_timeout_seconds())
+        timeout_val = getattr(request, "timeout_seconds", 120) or 120
+        timeout = timedelta(seconds=timeout_val)
         payload: dict[str, Any] = {
             "ticket_id": request.ticket_id,
             "subject": request.subject,
