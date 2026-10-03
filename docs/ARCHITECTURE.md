@@ -70,13 +70,25 @@ executes the identical stage functions, in the same order, with the same retry
 ceiling and the same approval rule.
 
 `TEMPORAL_ENABLED=false` (the default) selects the local runner, so development
-and the test suite need no Temporal cluster. Setting it true gives durability:
-retries across restarts, and an approval gate that suspends without holding a
-worker.
+and the test suite need no Temporal cluster. That is the path the tests
+exercise.
 
+**Current state of the Temporal path: it does not run.** Two defects, both
+reproduced by starting the SDK:
+
+1. Activities are passed to `Worker(...)` as plain callables. `temporalio`
+   requires `@activity.defn` and async activities, so the worker refuses to
+   start: `TypeError: Activity activity_classify missing attributes, was it
+   decorated with @activity.defn?`
+2. The workflow body is not sandbox-safe: `stage_timeout_seconds()` reads
+   `app.config.settings`, and validating the workflow raises
+   `RestrictedWorkflowAccessError: Cannot access pathlib.Path.resolve.__call__
+   from inside a workflow`.
+
+So the durable-runtime claim is a **design**, not a demonstrated capability.
 The local runner's limits are stated in its own docstring — no history, no
-restart survival, no cross-process wait. That difference is the reason to run
-Temporal in production, and it is not papered over.
+restart survival, no cross-process wait — and neither runtime is papered over.
+`docs/interview-qa.md` carries the full evidence and the fix path.
 
 ## Data flow: one ticket through the AI layer
 

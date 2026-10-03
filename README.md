@@ -52,10 +52,16 @@ rather than sent to a customer. A violation returns `502` and leaves the ticket
 untouched.
 
 **4. Long-running AI work loses state.**
-The ticket pipeline runs as a Temporal workflow: classify → retrieve → draft →
-**suspend for human approval** → send. The gate is a real `wait_condition`
-resumed by a signal, so the run survives a process restart instead of holding a
-worker or losing itself.
+The ticket pipeline is written as a Temporal workflow: classify → retrieve →
+draft → **suspend for human approval** → send. The gate is a real
+`wait_condition` resumed by a signal, so the design is durability-first rather
+than "hold a worker and hope".
+
+To be precise about its current state: the definition, signals and query are
+tested, but a Temporal worker cannot yet start (its activities need
+`@activity.defn`, and the workflow body is not sandbox-safe). What runs today is
+the in-process runner, which is explicitly not durable. `docs/interview-qa.md`
+has the evidence.
 
 ---
 

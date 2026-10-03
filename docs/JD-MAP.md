@@ -30,13 +30,30 @@ AI_PROVIDER=stub python evaluation/eval_suite.py --check
 
 ## 2. Durable workflows on Temporal
 
+> **Correction (2026-10-03).** This table previously read **Verified** for the
+> Temporal row. Running the SDK proved that wrong: a Temporal **worker cannot
+> start**. Two defects, both reproduced:
+>
+> 1. Activities are passed as plain callables to `Worker(...)`, but `temporalio`
+>    requires `@activity.defn` and async activities. Starting the worker raises
+>    `TypeError: Activity activity_classify missing attributes, was it decorated
+>    with @activity.defn?`
+> 2. The workflow body is not sandbox-safe. Validating the workflow raises
+>    `RestrictedWorkflowAccessError: Cannot access pathlib.Path.resolve.__call__
+>    from inside a workflow`, because `stage_timeout_seconds()` reads
+>    `app.config.settings`, whose import touches the filesystem.
+>
+> `docs/interview-qa.md` (Temporal section) carries the full evidence and the fix
+> path. Statuses below are corrected accordingly.
+
 | JD requirement | Status | Evidence |
 |---|---|---|
-| Multi-step agent processes | **Verified** | `app/workflows/definitions.py:192` — `@workflow.defn(name="TicketProcessingWorkflow")`; classify → retrieve → draft → approval → send |
-| Survive restarts | **Verified (definition)** | The workflow is a Temporal `@workflow.run`, so the server replays its history. The **local runner is explicitly not durable** — see Gaps |
-| Retries and partial failures | **Verified** | `app/workflows/pipeline.py` `run_stage()` retries to `MAX_STAGE_ATTEMPTS`; `tests/test_workflows.py::test_transient_failure_is_retried`, `::test_permanent_failure_raises_after_the_ceiling` |
-| Human approval that suspends the run | **Verified** | `definitions.py:233` — `await workflow.wait_condition(...)`, resumed by `approve`/`reject` signals |
-| Temporal in production | **Not implemented** | `TEMPORAL_ENABLED=false` by default; `docker-compose.yml` ships a `temporal` service for a real deployment |
+| Multi-step agent processes | **Implemented, not runnable on Temporal** | `app/workflows/definitions.py` defines the stages (classify → retrieve → draft → approval → send) and the in-process runner executes them under test. The Temporal runtime path does not start — see the correction above |
+| Survive restarts | **Not implemented** | Nothing durable exists yet: the worker cannot start, and the in-process runner is explicitly not durable (no history, no restart survival) |
+| Retries and partial failures | **Verified (local runner only)** | `pipeline.py::run_stage()` retries to `MAX_STAGE_ATTEMPTS`; `tests/test_workflows.py::test_transient_failure_is_retried`, `::test_permanent_failure_raises_after_the_ceiling`. Temporal's own retry policy is not configured |
+| Human approval that suspends the run | **Verified (local runner); Temporal signal path untested** | `definitions.py` declares `wait_condition` and `approve`/`reject` signals; `tests/test_workflows.py::test_workflow_exposes_approval_signals` asserts they are registered. The suspend/resume round trip is exercised through the local runner, not a live worker |
+| Workflow ids and duplicate protection | **Implemented, untested against a server** | `_reuse_policy()` returns `ALLOW_DUPLICATE_FAILED_ONLY`; `tests/test_workflows.py::test_reuse_policy_allows_a_retry_only_after_failure` |
+| Temporal in production | **Not implemented** | `TEMPORAL_ENABLED=false` by default; `docker-compose.yml` ships a `temporal` service, but nothing has run against it |
 
 ## 3. Reliable AI pipelines
 
@@ -70,7 +87,7 @@ AI_PROVIDER=stub python evaluation/eval_suite.py --check
 |---|---|---|
 | REST APIs | **Verified** | `backend/app/api/` — auth, tickets, ai, metrics, dashboard, webhooks |
 | PostgreSQL | **Verified** | `DATABASE_URL` in prod, 6 Alembic migrations, optimistic concurrency on ticket status |
-| Async I/O | **Verified** | `fetch` with `AbortSignal` in the gateway; Temporal activities are `async` |
+| Async I/O | **Partial** | `fetch` with `AbortSignal` in the gateway, async throughout the TypeScript service. On the Python side the AI layer uses sync `httpx` calls, and the Temporal workflow body is `async` but its activities are currently sync callables that the SDK rejects — see section 2 |
 | Redis | **Not implemented** | Rate limiting is in-process (`app/rate_limit.py`) — per-instance, and therefore under-counts behind multiple workers |
 | Message queues | **Partial** | Temporal's task queue carries the AI work; no Kafka/RabbitMQ/SQS |
 | Testing depth | **Verified** | 331 backend test functions, 56 gateway tests, 15 frontend tests |
@@ -138,9 +155,12 @@ disguised by the code.
    under-counts behind more than one worker. The per-IP limit on guest
    submissions is the one that matters, and it would need Redis or an equivalent
    shared store.
-2. **Temporal is defined but not run in production.** The workflow, its signals
-   and its retries are real and exercised through the local runner;
-   `TEMPORAL_ENABLED` has never been pointed at a live cluster here.
+2. **The Temporal runtime path does not run.** The workflow definition, its
+   signals, its query and the in-process runner are real and tested. But a
+   Temporal worker cannot start: the activities are not decorated with
+   `@activity.defn` and the workflow body is not sandbox-safe. Nothing has run
+   against a Temporal cluster. See the correction note in section 2 and the
+   Temporal section of `docs/interview-qa.md`.
 3. **Langfuse is OTel-compatible, not Langfuse-hosted.** No hosted Langfuse
    project is configured.
 4. **No AWS.** Deployment is Render + Cloudflare Pages.
@@ -148,6 +168,12 @@ disguised by the code.
    "implemented, tested and deployable".
 6. **The knowledge base is two documents.** RAG works end to end, but a corpus
    this small does not stress retrieval quality.
+7. **Native provider tool calling is not implemented.** The agent loop uses a
+   deterministic planner offline; OpenAI/Anthropic tool-call formats are not yet
+   normalized into the loop's `ToolCall` shape.
+8. **`docker compose up` has not been run against this tree.** The Compose file
+   is valid and `JWT_SECRET` fails fast as intended, but a valid config proves
+   nothing about the services starting.
 
 ## Corrections made to earlier claims
 

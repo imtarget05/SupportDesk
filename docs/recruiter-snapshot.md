@@ -19,12 +19,18 @@ a refund on its own authority.
   counts, a versioned-rate-table USD cost, latency and outcome. `GET
   /api/metrics/ai` gives per-model p50/p95, error rate and cost per successful
   call. An unpriced model reports `null`, not a fabricated zero.
-- **Durable AI work.** The ticket pipeline runs as a Temporal workflow with a
-  real human-approval gate — `wait_condition` resumed by a signal — so the run
-  survives a restart instead of losing itself.
+- **Durable AI work — defined, not yet runnable.** The ticket pipeline is
+  written as a Temporal workflow with a real human-approval gate. Be precise:
+  the definition, signals and query are tested, but a Temporal worker cannot
+  currently start (activities lack `@activity.defn`, and the workflow body is not
+  sandbox-safe), and nothing has run against a cluster. What works today is the
+  in-process runner, which is explicitly not durable. `docs/interview-qa.md`
+  carries the evidence.
 - **Tool calling with a boundary.** The agent loop calls read-only tools whose
   arguments are validated by the same Pydantic model that generates the
   advertised JSON schema. Loop detection and a step ceiling stop runaway runs.
+  Native provider tool calling is not wired up yet — the offline path uses a
+  deterministic planner.
 - **Standards, not reinvention.** LangGraph (`StateGraph` + checkpointing +
   `interrupt`), MCP (tools published over the protocol), Qdrant (vector search),
   OpenTelemetry GenAI spans (OTLP, so Langfuse/Tempo can consume them).
@@ -43,10 +49,11 @@ all offline, no API key.
 
 ## Caveats, stated plainly
 
-Redis is not used (rate limiting is per-instance); Temporal is defined and
-tested but not run against a live cluster; Langfuse is OTel-compatible rather
-than hosted; there is no production traffic. Full detail, requirement by
-requirement, is in `docs/JD-MAP.md`.
+Redis is not used (rate limiting is per-instance); the Temporal runtime path
+does not run; Langfuse is OTel-compatible rather than hosted; native provider
+tool calling is not wired up; there is no production traffic. Full detail,
+requirement by requirement, is in `docs/JD-MAP.md`, and the interview-ready
+answers are in `docs/interview-qa.md`.
 
 ## Repo hygiene
 
