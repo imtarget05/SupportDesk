@@ -31,6 +31,23 @@ def _reset_rate_limiter():
     rate_limit.reset()
 
 
+@pytest.fixture(autouse=True)
+def _reset_ai_provider():
+    """Drop the cached AI provider and counters between tests.
+
+    The provider is a module-level singleton, so a test that injects a fake (or
+    selects a real backend) would otherwise leak that choice into the next test
+    in any file, which only shows up as a confusing network error.
+    """
+    from app.services import ai_service, metrics
+
+    ai_service.set_provider(None)
+    metrics.reset()
+    yield
+    ai_service.set_provider(None)
+    metrics.reset()
+
+
 @pytest.fixture()
 def db_session():
     Base.metadata.drop_all(bind=engine)
@@ -101,3 +118,17 @@ def create_ticket(client, *, subject="Printer on fire", email=None, headers=None
         payload["customer_email"] = email or "anon@example.com"
         payload["customer_name"] = "Anon User"
     return client.post("/api/tickets", json=payload, headers=headers)
+
+
+@pytest.fixture(autouse=True)
+def _reset_workflow_runner():
+    """Clear the in-process workflow runs between tests.
+
+    Workflow ids and approval state are process-global, so without this a run
+    started in one test stays visible in the next and ids stop being unique.
+    """
+    from app.workflows.local_runner import reset_runner
+
+    reset_runner()
+    yield
+    reset_runner()
