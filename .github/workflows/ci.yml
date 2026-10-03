@@ -42,6 +42,44 @@ jobs:
       - name: Evaluation smoke (stub provider)
         run: |
           AI_PROVIDER=stub python evaluation/evaluate.py
+      - name: Eval regression gate (stub provider)
+        run: |
+          # Runs the full harness (classification, schema validity, guardrail
+          # trip rate, cost, latency) and fails on a regression vs
+          # evaluation/baseline.json. Offline: the stub provider needs no key.
+          # An isolated SQLite file is migrated first because call tracing
+          # persists one row per LLM call. Using Alembic (not create_all) means
+          # this step also fails if a migration is broken.
+          cd backend
+          DATABASE_URL="sqlite:///./ci-eval.db" python -m alembic upgrade head
+          cd ..
+          AI_PROVIDER=stub DATABASE_URL="sqlite:///./backend/ci-eval.db" \
+            python evaluation/eval_suite.py --check
+
+  gateway:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-gateway-${{ hashFiles('gateway/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-gateway-
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Run tests
+        run: npm test
 
   frontend:
     runs-on: ubuntu-latest

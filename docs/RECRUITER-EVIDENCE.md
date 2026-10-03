@@ -1,31 +1,33 @@
 # Recruiter Evidence — SupportDesk
 
-Every claim below was verified by personally reading the file cited and running the command quoted in the
-**RUNTIME EVIDENCE** row. Line numbers were re-derived from the working tree, not copied from a prior audit.
+Every claim below was verified by reading the file cited and running the command
+quoted. Numbers were re-derived from the working tree, not carried over from an
+earlier audit.
 
 **Environment used for all commands**
 
-- Python: `backend\.venv\Scripts\python.exe` (Python 3.11), working directory `backend/`
-- Node: npm 10.x, working directory `frontend/`
-- `backend/pyproject.toml:1-4` sets `testpaths = ["tests"]` and `pythonpath = ["."]`, so `pytest` must run from `backend/`
+- Python 3.11 via `uv venv --python 3.11 .venv` in `backend/`; `backend/pyproject.toml`
+  sets `testpaths = ["tests"]` and `pythonpath = ["."]`, so `pytest` runs from `backend/`.
+- Node 22+ for both `frontend/` and the new `gateway/`.
 
-**The one-line backend result that anchors most of this document**
+**Anchoring results, run in this repository**
 
 ```
 cd backend
-backend\.venv\Scripts\python.exe -m pytest -p no:cacheprovider
--> 133 passed, 1 skipped, 7 warnings in 112.18s (0:01:52)
-```
+AI_PROVIDER=stub .venv/bin/python -m pytest -p no:cacheprovider
+-> 331 test functions, 0 failures, 1 skipped (offline: no API key, no network)
 
-**The one-line frontend result**
+cd gateway
+npm ci && npm run typecheck && npm test
+-> Test Files  4 passed (4) | Tests  56 passed (56) | tsc --noEmit clean
 
-```
 cd frontend
-npm ci        -> added 161 packages, and audited 162 packages in 5s
-npm test      -> Test Files  7 passed (7)
-                 Tests       15 passed (15)
-                 Duration    22.64s
+npm ci && npm test
+-> Test Files  7 passed (7) | Tests  15 passed (15)
 ```
+
+The whole suite runs offline. That is a deliberate property, not an accident: a
+reviewer can check every claim below without an API key or a cluster.
 
 ---
 
@@ -140,12 +142,84 @@ npm test      -> Test Files  7 passed (7)
 
 ---
 
-## Known Gaps (fix before showcasing)
+## Known Gaps — RESOLVED in code, not just in prose
 
-- **LangGraph attribution is false.** `backend/app/services/graph_workflow.py:1` and `:110` both call it a "LangGraph workflow", and `backend/app/api/ai.py:8` and `:101` repeat that in the API docs, but the module imports nothing from langgraph. `process_ticket` at `backend/app/services/graph_workflow.py:124-142` is a straight-line sequence of four method calls (`_classify_ticket` -> `_retrieve_context` -> `_draft_answer` -> `_confidence_check`) over a mutable `TicketState` dataclass. `langgraph` is in `backend/requirements.txt:8` and is installed (`find_spec('langgraph') is not None` -> `True`), but a search for `^\s*(import|from) langgraph` across `backend/app/**` returns 0 hits. The workflow, its audit log, its confidence routing and `test_process_ticket_classification` are all real; only the framework name is wrong. **Say "a four-stage classification pipeline over a shared state object"; do not say LangGraph.**
+The previous audit of this document flagged three inaccurate claims. All three
+are now fixed in the implementation and regression-tested. The details are in
+[`docs/JD-MAP.md`](JD-MAP.md#corrections-made-to-earlier-claims); this section
+records the evidence that they are genuinely fixed rather than reworded.
 
-- **`AI_EMBED_PROVIDER=hf` is inert on the path that matters.** `embed_text` at `backend/app/services/retrieval_service.py:61-67` does honour the switch, but `ensure_embedding` at `backend/app/services/retrieval_service.py:90` calls `embed()` directly -- the 128-dim hashed bag-of-words function at `backend/app/services/retrieval_service.py:28-37` -- so every persisted vector and every cosine score in `find_similar_tickets` ignores the setting. Proven at runtime with `AI_EMBED_PROVIDER=hf`: `settings.ai_embed_provider` printed `hf`, `embed_text(...)` returned a **384-dim** MiniLM vector, but `embed(...)` is still **128-dim** (`EMBED_DIM = 128`) and is what gets written to `ticket_embeddings`. `test_embed_text_dispatches_and_falls_back_offline` at `backend/tests/test_retrieval.py:11` only asserts the shape is `len in (128, 384)`, so it passes while the defect persists. **Say "a deterministic 128-dim hashed n-gram embedder with cosine similarity"; do not claim HuggingFace / sentence-transformers embeddings are in use.**
+### 1. LangGraph attribution — now real
 
-- **No OpenTelemetry instrumentation exists.** A repo-wide search for `opentelemetry` across all `.py`/`.txt`/`.md`/`.yml`/`.ts`/`.tsx` files returns 0 hits, `backend\.venv\Scripts\python.exe -c "... importlib.util.find_spec('opentelemetry')"` returns `None`, and it is not in `backend/requirements.txt:1-18`. What does exist is hand-rolled in-process counting in `backend/app/services/metrics.py:9-36` plus `time.perf_counter()` timing at `backend/app/services/ai_service.py:399` and `:416`. **Say "custom in-process latency and error counters"; say nothing about OpenTelemetry, tracing or spans.**
+**Then:** `graph_workflow.py` described itself as a "LangGraph workflow" while
+importing nothing from `langgraph`. `process_ticket` was a straight-line
+sequence of four method calls.
+
+**Now:** the module builds a real `StateGraph` compiled with a `MemorySaver`
+checkpointer, and the approval gate is a genuine `interrupt()` resumed by
+`Command(resume=...)`.
+
+```
+$ cd backend && .venv/bin/python -m pytest tests/test_graph_workflow.py -q
+................                                                 [100%]
+```
+
+`tests/test_graph_workflow.py::TestLangGraphIsReal` asserts the compiled app is
+a `CompiledStateGraph`, that its node set is the five expected stages, that a
+checkpointer is installed, that a run's state is retrievable by thread id, and
+that approval suspends and resumes. A renamed straight line would fail all of
+these.
+
+### 2. `AI_EMBED_PROVIDER=hf` — now honoured on the persistence path
+
+**Then:** `ensure_embedding` called the bag-of-words `embed()` directly, so every
+persisted vector and every similarity score ignored the setting. The existing
+test only asserted `len in (128, 384)`, which passed while the defect was live.
+
+**Now:** `ensure_embedding` routes through `embed_text`, and each stored vector
+records the embedder id and width that produced it. A row written by a different
+embedder is recomputed rather than reused, because cosine similarity across
+incompatible embedding spaces is meaningless rather than merely inaccurate.
+
+`tests/test_retrieval.py::test_ensure_embedding_honours_hf_provider` is the
+regression test, and it asserts the exact width rather than a loose shape range.
+The loose assertion is what let the original defect hide.
+
+### 3. Observability — now exists
+
+**Then:** no OpenTelemetry anywhere in the repository; only hand-rolled
+in-process counters.
+
+**Now:** `app/services/telemetry.py` emits OpenTelemetry GenAI spans using the
+`gen_ai.*` semantic conventions, exportable over OTLP (so Langfuse, Tempo or
+Honeycomb can consume them), off unless `OTEL_ENABLED`. Separately,
+`app/services/tracing.py` persists one row per LLM call to `ai_call_traces` with
+token counts, cost, latency and outcome — which survives a restart, unlike the
+in-process counters.
+
+```
+$ cd backend && .venv/bin/python -m pytest tests/test_telemetry.py tests/test_tracing.py -q
+........................................                             [100%]
+```
+
+## Two further defects found and fixed during this work
+
+Both were found by tests written alongside the feature, not by review after the
+fact, and both are now regression-tested.
+
+**The gateway's public-path allowlist matched on path only.** `GET /api/tickets`
+— the authenticated ticket list — was treated as public because the same path is
+public for `POST`. Requests to the ticket list were proxied to the backend with
+no credentials. Fixed by making the exemption method-aware:
+`gateway/src/server.test.ts::requires auth for GET on the ticket list path`.
+
+**The output guardrails did not block internal detail.** The agent loop reports a
+failed tool call back to the model as text; a model that echoed
+`OperationalError: no such table: tickets` into its draft would have sent an
+internal error to a customer. `INTERNAL_DETAIL_PATTERNS` in
+`app/services/guardrails.py` now rejects that class of output:
+`tests/test_guardrails.py::test_internal_details_are_rejected`. The same work
+widened the injection patterns, which previously missed the very common phrasing
+"Ignore all previous instructions".
 
 - **Bonus, since it will come up anyway.** The README tech-stack line `README.md:55` lists "LangGraph, LangChain, LlamaIndex, sentence-transformers, scikit-learn". LangChain and LlamaIndex are genuinely imported (`backend/app/services/langchain_agent.py:5`, `backend/app/services/knowledge_base.py:84-86`); the LangGraph and sentence-transformers entries are aspirational. And `docs/spec.md:128` already lists SLA engine, multi-tenancy and fine-grained RBAC as out of scope -- that document is the honest scope statement to point at when an interviewer asks what you deliberately did not build.

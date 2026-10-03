@@ -7,6 +7,11 @@ evaluation/__pycache__/
 **/__pycache__/
 **/*.py[cod]
 
+# Local virtualenv (never commit the environment)
+.venv/
+**/.venv/
+venv/
+
 # macOS
 .DS_Store
 

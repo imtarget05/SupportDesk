@@ -50,6 +50,50 @@ services:
       start_period: 5s
       retries: 3
 
+# ── Vector store for knowledge-base RAG (optional) ───────────────────
+  # The app falls back to its in-process LlamaIndex index when this is absent
+  # or unreachable, so the stack starts and works without it.
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrantdata:/qdrant/storage
+    restart: on-failure
+
+  # ── Durable workflows (optional) ─────────────────────────────────────
+  # With TEMPORAL_ENABLED=false the backend uses its in-process activity
+  # runner, which executes the same workflow definitions.
+  temporal:
+    image: temporalio/auto-setup:latest
+    environment:
+      - DB=sqlite
+      - DB_FILE_PATH=/data/temporal.db
+    ports:
+      - "7233:7233"
+    volumes:
+      - temporaldata:/data
+    restart: on-failure
+# ── API gateway (TypeScript) ────────────────────────────────────────
+  # Verifies JWTs and proxies /api to the backend, so auth is enforced before
+  # any request — including an AI call — reaches the Python service.
+  gateway:
+    build:
+      context: ./gateway
+    environment:
+      - PORT=8080
+      - BACKEND_URL=http://backend:8000
+      - BACKEND_TIMEOUT_MS=30000
+      # Signs and verifies the same tokens; no default on purpose.
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+    ports:
+      - "127.0.0.1:8080:8080"
+    restart: on-failure
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # ── Frontend (Nginx serving dist + proxy /api) ──
   # ── Frontend (Nginx serving dist + proxy /api) ──
   frontend:
     image: nginx:alpine
@@ -73,3 +117,5 @@ services:
 
 volumes:
   pgdata:
+  qdrantdata:
+  temporaldata:

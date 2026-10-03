@@ -1,128 +1,192 @@
-# SupportDesk — AI-Assisted Customer Support Ticket System
+# SupportDesk — AI-Native Support Operations Platform
 
 ![Python](https://img.shields.io/badge/Python-3.11+-blue.svg?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.103+-009688.svg?logo=fastapi&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.7+-3178C6.svg?logo=typescript&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-checkpointed-1f88c5)
+![Temporal](https://img.shields.io/badge/Temporal-workflows-1f88c5)
+![Qdrant](https://img.shields.io/badge/Qdrant-vector-1f88c5)
+![MCP](https://img.shields.io/badge/MCP-tools-1f88c5)
 ![React](https://img.shields.io/badge/React-18.0+-61DAFB.svg?logo=react&logoColor=black)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6.svg?logo=typescript&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-4169E1.svg?logo=postgresql&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16+-4169E1.svg?logo=postgresql&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 
-**SupportDesk** is a production-ready, full-stack customer support ticket management system designed around a core principle: **AI suggests, agents decide**. By integrating advanced NLP and AI capabilities directly into the support workflow, SupportDesk empowers agents to resolve tickets faster and more accurately without compromising human judgment.
+A support ticket system built around one principle: **AI suggests, agents
+decide.** The AI layer triages tickets, retrieves policy evidence, calls
+read-only tools, and drafts replies — and never sends anything, changes ticket
+state, or promises a refund on its own authority.
+
+What makes this more than a chatbot with a ticket table is the engineering
+*around* the model: durable workflows that survive a restart and wait for a
+human approval, deterministic guardrails that fail closed, per-call cost and
+latency tracing, and an evaluation harness wired into CI as a regression gate.
+
+> Applying for an AI engineering role? [`docs/JD-MAP.md`](docs/JD-MAP.md) maps
+> each job requirement to the code that satisfies it — including the parts that
+> are **not** implemented.
 
 ---
 
-## 🚀 Key Features
+## The four problems this actually solves
 
-*   **Ticket Lifecycle State Machine**: Robust backend-enforced state transitions (`OPEN` → `IN_PROGRESS` → `WAITING` → `RESOLVED` → `CLOSED`) preventing illegal updates.
-*   **Optimistic Concurrency**: Status changes are written with a conditional `UPDATE ... WHERE status = <validated>`, so two agents patching one ticket produce a `409` rather than a silent last-write-win.
-*   **AI Ticket Classification**: Automatic categorization of incoming tickets (category, priority, summary) with associated confidence scores.
-*   **AI Suggested Responses**: Context-aware draft replies generated using current ticket context, internal support policies, and similar resolved tickets.
-*   **Similar Ticket Retrieval**: Cosine similarity over a deterministic 128-dim hashed bag-of-words embedding of each ticket, to surface relevant historical tickets. (The knowledge-base RAG index is separate and does use `sentence-transformers`.)
-*   **Agent Dashboard**: Real-time operational statistics, advanced filtering, and pagination.
-*   **Multi-Provider AI Strategy**: Seamlessly switch between Cloudflare Workers AI (Llama 3.1), OpenAI-compatible endpoints, or a stub mode for offline/isolated testing.
-*   **Evaluation Pipeline**: Built-in automated evaluation suite measuring accuracy, macro-F1, and per-category F1 on ~100 labeled tickets.
-*   **Enterprise-Grade Security**: JWT-based authentication (PBKDF2-HMAC-SHA256), strict CORS configurations, security headers, and AI output guardrails.
-*   **Email Integration**: Secure inbound email webhook handling with HMAC-SHA256 signature verification.
-*   **Guest Ticket Submission**: `POST /api/tickets` intentionally accepts unauthenticated submissions (the public contact form must work before signup), rate limited per client IP — see below.
+**1. An LLM feature you cannot measure is a liability.**
+`evaluation/eval_suite.py` measures four things on a labeled dataset:
+classification quality, schema validity, how often the guardrails block output,
+and the cost and latency per ticket. `--check` compares a run against
+`evaluation/baseline.json`, and CI fails the build on a >2pp accuracy drop, a
+guardrail-rate spike, or a p95 latency blow-up.
+
+**2. Cost and latency are invisible until the bill arrives.**
+Every provider call is persisted to `ai_call_traces` with token counts, a USD
+cost computed from a versioned rate table, latency, and outcome.
+`GET /api/metrics/ai` returns per-model p50/p95, error rate, and cost per
+successful call. A model with no published price reports `null`, not a
+fabricated zero.
+
+**3. Model output is untrusted.**
+Output passes deterministic guardrails before an agent sees it: no refund
+commitments, no claims of facts absent from the thread, no prompt-injection
+echo, and no internal detail — a tool error echoed into a draft is rejected
+rather than sent to a customer. A violation returns `502` and leaves the ticket
+untouched.
+
+**4. Long-running AI work loses state.**
+The ticket pipeline runs as a Temporal workflow: classify → retrieve → draft →
+**suspend for human approval** → send. The gate is a real `wait_condition`
+resumed by a signal, so the run survives a process restart instead of holding a
+worker or losing itself.
 
 ---
 
-## 🏗 Architecture
-
-SupportDesk follows a decoupled, service-oriented architecture optimized for scalable deployment.
+## Architecture
 
 ```mermaid
 graph TD
     Client[Customer / Agent] -->|HTTPS| SPA[React SPA]
-    SPA -->|REST API| Nginx[Nginx Reverse Proxy]
-    Nginx --> FastAPI[FastAPI Backend]
-    
-    FastAPI <-->|Read/Write| DB[(PostgreSQL)]
-    FastAPI <-->|Auth| JWT[JWT Auth Service]
-    
-    FastAPI -->|Analyze / Suggest / Embed| AIService[AI Service Layer]
-    AIService --> LLM[Cloudflare / OpenAI / Stub]
-    AIService --> RAG[Knowledge Base RAG]
-    AIService --> Similarity[Vector Similarity Search]
+    SPA -->|REST| Nginx[Nginx]
+    Nginx --> GW[TypeScript Gateway<br/>JWT verify · proxy]
+    GW -->|authenticated REST| API[FastAPI Backend]
+
+    API <-->|Read/Write| DB[(PostgreSQL)]
+    API --> AISvc[AI Service Layer<br/>guardrails · tracing · telemetry]
+    AISvc --> LLM[OpenAI · Anthropic · Cloudflare · Stub]
+    AISvc --> RAG[RAG: Qdrant or LlamaIndex]
+    AISvc --> Tools[Read-only tool registry]
+    Tools --> MCP[MCP Server]
+    API --> WF[Temporal workflow<br/>approve / reject signals]
+    AISvc -.->|OTel GenAI spans| Obs[Langfuse / Tempo / Honeycomb]
 ```
+
+The gateway is the caller-facing security boundary: it verifies the JWT before
+any request — including an AI call — reaches the Python service. Only
+`POST /api/tickets`, `/api/auth/login` and `/api/auth/register` are public.
 
 ---
 
-## 💻 Tech Stack
+## Features
 
-### Backend
-*   **Core**: Python, FastAPI, SQLAlchemy, Alembic
-*   **Database**: PostgreSQL (Production) / SQLite (Dev/Test)
-*   **AI & ML**: sentence-transformers, scikit-learn, Vector Similarity Search
-*   **Security**: JWT Auth (PBKDF2-HMAC-SHA256)
+**Ticket lifecycle**
+- Backend-enforced state machine (`OPEN → IN_PROGRESS → WAITING → RESOLVED → CLOSED`); illegal transitions return `409`.
+- Optimistic concurrency via a conditional `UPDATE ... WHERE status = <expected>`, so two agents editing one ticket cannot silently overwrite each other.
+- Guest submissions via `POST /api/tickets`, rate limited per client IP. The bucket keys on the peer address, not a spoofable `X-Forwarded-For`.
 
-### Frontend
-*   **Core**: React 18, TypeScript, Vite
-*   **Routing**: React Router
+**AI layer**
+- **Classification** with category, priority, summary and confidence. Malformed provider output never corrupts ticket data.
+- **Agent tool loop** (`POST /api/tickets/{id}/ai/agent`): the model requests read-only tools (`get_ticket_history`, `search_similar_tickets`, `search_knowledge_base`, `lookup_order`), receives results, and drafts. Bounded by `TOOL_MAX_STEPS`, with repeated-call detection to stop runaway loops.
+- **Tool arguments validated by the same Pydantic model that generates the advertised JSON schema**, with `extra="forbid"` so a hallucinated parameter fails loudly instead of being ignored.
+- **MCP server** (`python -m app.mcp_server`) publishing those tools over the Model Context Protocol, so another agent can reuse this deployment's knowledge base without importing this codebase.
+- **LangGraph workflow** (`POST /api/tickets/{id}/ai/workflow`) — a real `StateGraph` with `MemorySaver` checkpointing and `interrupt()`/`Command(resume=...)` for the approval gate.
+- **RAG** over the knowledge base using Qdrant (embedded or server) with an in-process LlamaIndex fallback that degrades rather than fails when a store is unreachable.
+- **Similar-ticket retrieval** over per-ticket embeddings. Each vector records the embedder and width that produced it, so vectors from different embedders are never compared.
 
-### DevOps & Infrastructure
-*   **Containerization**: Docker, Docker Compose
-*   **CI/CD**: GitHub Actions
-*   **Deployment**: Render (Backend & DB), Cloudflare Pages (Frontend)
+**Providers**: Anthropic (Claude), OpenAI-compatible, Cloudflare Workers AI, and a deterministic offline stub. The entire test suite runs with no API key.
 
 ---
 
-## 🚦 Quick Start
+## Tech Stack
 
-### 1. Local Development
+**Backend (Python)** — FastAPI, SQLAlchemy 2, Alembic (6 migrations), Pydantic; LangGraph (checkpointed state graph), Temporal (durable workflows); LlamaIndex + Qdrant (RAG), sentence-transformers/MiniLM, scikit-learn; OpenTelemetry SDK; MCP SDK.
+
+**Gateway (TypeScript)** — Fastify 5, `jose` for JWT verification, Zod for config validation; `tsc` under `strict` + `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes`.
+
+**Frontend** — React 18, TypeScript, Vite, React Router, Vitest.
+
+**Infrastructure** — Docker + Compose (Postgres, backend, gateway, frontend, Qdrant, Temporal); GitHub Actions (backend suite, eval gate, gateway typecheck/build/test, frontend build/test); deploy to Render + Cloudflare Pages.
+
+---
+
+## Quick start
+
 ```bash
-# Clone the repository
-git clone https://github.com/imtarget05/AI-Customer-Support-Ticket-System.git
-cd AI-Customer-Support-Ticket-System
-
-# Start Backend
-cd backend
-pip install -r requirements.txt
-export JWT_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
-uvicorn app.main:app --reload
-
-# Start Frontend (in a new terminal)
-cd ../frontend
-npm install
-npm run dev
-```
-
-### 2. Docker Compose (Full Stack)
-```bash
-export JWT_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+# Everything in containers
+export JWT_SECRET="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
 docker compose up -d --build
+
+# Or run the backend directly
+cd backend
+uv venv --python 3.11 .venv && VIRTUAL_ENV=.venv uv pip install -r requirements.txt
+export JWT_SECRET="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+AI_PROVIDER=stub .venv/bin/python -m pytest -q      # no API key needed
+.venv/bin/uvicorn app.main:app --reload
 ```
+
+## Verifying it works
+
+```bash
+cd backend  && .venv/bin/python -m pytest -q              # backend suite
+cd gateway && npm ci && npm run typecheck && npm test     # TypeScript
+cd frontend && npm ci && npm test                        # React
+AI_PROVIDER=stub python evaluation/eval_suite.py --check  # eval regression gate
+```
+
+See [`docs/JD-MAP.md`](docs/JD-MAP.md) for measured numbers, the evidence behind
+each claim, and an explicit list of what is **not** implemented.
 
 ---
 
 ## 📡 API Reference
 
-The backend exposes a comprehensive RESTful API.
+The gateway proxies `/api/*` to the backend after verifying the JWT. Public
+endpoints are `POST /api/tickets`, `/api/auth/login`, `/api/auth/register`, and
+the gateway's own `/healthz` and `/readyz`.
 
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
 | `POST` | `/api/auth/login` | Authenticate user & get JWT |
-| `POST` | `/api/auth/register` | Register new user account |
-| `POST` | `/api/tickets` | Create a new support ticket (guest submissions allowed, per-IP rate limited) |
-| `GET` | `/api/tickets` | List tickets (with filters & pagination) |
-| `GET` | `/api/tickets/{id}` | Retrieve ticket details |
-| `PATCH` | `/api/tickets/{id}` | Update status/priority (Agent only) |
-| `POST` | `/api/tickets/{id}/messages` | Add a message to a ticket |
-| `POST` | `/api/tickets/{id}/ai/analyze` | Trigger AI classification |
-| `POST` | `/api/tickets/{id}/ai/suggest` | Generate AI response draft |
-| `GET` | `/api/tickets/{id}/similar` | Retrieve similar resolved tickets |
-| `GET` | `/api/dashboard/stats` | Retrieve agent dashboard statistics (Agent only) |
-| `GET` | `/api/metrics` | AI call / error / latency counters (Agent only) |
+| `POST` | `/api/auth/register` | Register a customer account (role is always `customer`) |
+| `POST` | `/api/tickets` | Create a support ticket (guest submissions allowed, per-IP rate limited) |
+| `GET` | `/api/tickets` | List tickets (filters & pagination) |
+| `GET` | `/api/tickets/{id}` | Ticket detail |
+| `PATCH` | `/api/tickets/{id}` | Update status/priority (Agent only, state machine enforced) |
+| `POST` | `/api/tickets/{id}/messages` | Add a message |
+| **AI** | | |
+| `POST` | `/api/tickets/{id}/ai/analyze` | Classify the ticket; persists triage + logs a prediction |
+| `POST` | `/api/tickets/{id}/ai/suggest` | Draft a reply (never sends it) |
+| `POST` | `/api/tickets/{id}/ai/agent` | Run the tool-calling agent loop; returns the draft and the tool calls |
+| `POST` | `/api/tickets/{id}/ai/workflow` | LangGraph pipeline with checkpointed approval gate |
+| `POST` | `/api/tickets/{id}/ai/workflow/run` | Start the durable Temporal-style workflow run |
+| `GET` | `/api/tickets/{id}/ai/workflow/{wid}` | Workflow run state, including whether it awaits approval |
+| `POST` | `/api/tickets/{id}/ai/workflow/{wid}/decision` | Approve or reject a suspended run |
+| `GET` | `/api/tickets/{id}/similar` | Similar resolved tickets with similarity scores |
+| `GET` | `/api/tickets/ai/knowledge/stats` | Knowledge-base stats incl. active vector store |
+| **Ops** | | |
+| `GET` | `/api/metrics` | In-process counters: calls, errors, p50/p95, tokens, USD (Agent only) |
+| `GET` | `/api/metrics/ai` | Durable per-model cost/latency/error breakdown (Agent only) |
+| `GET` | `/api/metrics/ai/recent` | Most recent LLM calls, newest first (Agent only) |
+| `GET` | `/api/dashboard/stats` | Agent dashboard statistics (Agent only) |
 | `GET` | `/api/health` | System health check |
 
 ---
 
 ## 🔒 Security Model
 
-*   **Authentication** — every endpoint under `/api/tickets`, `/api/dashboard` and `/api/metrics` requires a JWT except the guest submission path below. `/api/metrics` exposes operational counters (AI call count, error count, p50 latency) and is agent-scoped.
-*   **Guest submissions are deliberate, and rate limited** — `POST /api/tickets` creates a ticket row and, for anonymous callers, a customer row, without authentication. That is a product decision: the public contact form has to work before signup. The control that bounds it is a per-client-IP limit (`TICKET_CREATE_RATE_LIMIT`, default `10` per `TICKET_CREATE_RATE_WINDOW_S`, default `3600`s) returning `429` with a `Retry-After` header. Authenticated submitters are not charged against that budget, because they are already attributable to an account. The bucket is keyed on the peer address rather than the `X-Forwarded-For` header, which a client could spoof to defeat the limit; behind a TLS-terminating proxy, run uvicorn with `--proxy-headers --forwarded-allow-ips=<proxy>` so the real client address is resolved.
-*   **No PII redaction, no SLA engine** — neither is implemented. The AI guardrails are deterministic checks against refund/compensation commitments, ungrounded factual claims and prompt-injection echo. `docs/spec.md` lists SLA monitoring, multi-tenancy and fine-grained RBAC as explicitly out of scope.
+- **Gateway-first authentication.** The TypeScript gateway verifies the HS256 JWT (`jose`) before any `/api` request reaches the Python service, so an unauthenticated call never consumes an upstream round trip. The backend still re-authorizes: a gateway check is a convenience, not the boundary. Only `POST /api/tickets`, `/api/auth/login` and `/api/auth/register` are public.
+- **No role escalation.** `POST /api/auth/register` hard-codes the `customer` role, so a client cannot self-assign `agent` — `tests/test_auth_register.py::test_register_cannot_escalate_to_agent`. First-agent provisioning uses a one-time token compared with `hmac.compare_digest`, and an unset token disables the route entirely.
+- **Agent-scoped operations.** `/api/metrics*` exposes call counts, token totals, costs and latencies; it is agent-only, so an unauthenticated capability is not hiding in the schema.
+- **Guest submissions are deliberate, and rate limited.** `POST /api/tickets` must work before signup. The control that bounds it is a per-client-IP limit (`TICKET_CREATE_RATE_LIMIT`, default `10` per `TICKET_CREATE_RATE_WINDOW_S` seconds) returning `429` with `Retry-After`. Authenticated submitters are not charged against it. The bucket keys on the peer address, not `X-Forwarded-For`, which a client could spoof; behind a TLS-terminating proxy, run uvicorn with `--proxy-headers --forwarded-allow-ips=<proxy>`.
+- **AI output is untrusted.** Deterministic guardrails reject refund/compensation commitments, facts absent from the thread, prompt-injection echo, and internal detail (a tool error echoed into a draft). `AI_GUARDRAIL_MODE=reject` returns `502` and leaves the ticket untouched; `fallback` substitutes a neutral draft. Tool calls are audited, and all tools are read-only.
+- **Not implemented, deliberately.** No PII redaction, no SLA engine, no multi-tenancy, no fine-grained RBAC beyond customer/agent. `docs/spec.md` records these as out of scope.
 
 ---
 
@@ -130,61 +194,84 @@ The backend exposes a comprehensive RESTful API.
 
 ```text
 ├── backend/
-│   ├── app/              # FastAPI application
-│   │   ├── api/          # Route handlers
-│   │   ├── models/       # SQLAlchemy ORM models
-│   │   ├── schemas/      # Pydantic validation schemas
-│   │   ├── services/     # Business logic (AI, tickets, auth)
-│   │   ├── config.py     # Centralized configuration management
-│   │   ├── security.py   # JWT + password hashing logic
-│   │   └── seed.py       # Database seeding utility
-│   ├── knowledge/        # Support policy documents for AI context
-│   ├── tests/            # 21 test files (auth, AI, tickets, email, security)
-│   ├── alembic/          # Database migrations
+│   ├── app/
+│   │   ├── api/           # Route handlers (auth, tickets, ai, metrics, webhooks)
+│   │   ├── models/        # SQLAlchemy ORM models (incl. ai_call_traces)
+│   │   ├── schemas/       # Pydantic request/response schemas
+│   │   ├── services/      # AI layer, LangGraph workflow, tracing, telemetry,
+│   │   │                  #   pricing, vector store, knowledge base, guardrails
+│   │   ├── tools/         # Read-only agent tools + allowlisted registry
+│   │   ├── workflows/     # Temporal definitions + in-process runner
+│   │   ├── mcp_server.py  # MCP server over the shared tool registry
+│   │   ├── config.py      # Env-driven settings, validated at import
+│   │   └── security.py    # JWT + password hashing
+│   ├── knowledge/         # Support policy docs for RAG
+│   ├── tests/             # 34 test files
+│   ├── alembic/           # Migrations (6)
 │   └── Dockerfile
-├── frontend/
-│   ├── src/              # React + TypeScript SPA source code
-│   └── nginx.conf        # Production reverse proxy configuration
+├── gateway/               # TypeScript API gateway (Fastify, strict TS)
+│   ├── src/               # config, auth, backend client, server, tests
+│   └── Dockerfile
+├── frontend/              # React SPA + nginx.conf
 ├── evaluation/
-│   ├── tickets.json      # ~100 labeled evaluation tickets
-│   ├── evaluate.py       # AI model evaluation pipeline
-│   └── train_baseline.py # TF-IDF baseline classifier
-├── docker-compose.yml    # Full-stack container orchestration
-├── render.yaml           # Blueprint for Render cloud deployment
-└── .github/workflows/    # CI/CD pipelines (Test & Deploy)
+│   ├── tickets.json       # 92 labeled evaluation tickets
+│   ├── eval_suite.py      # 4-metric harness + regression gate
+│   ├── baseline.json      # Recorded baseline for `--check`
+│   └── evaluate.py        # Classification-only evaluation
+├── docs/                  # spec, JD map, recruiter evidence, interview Q&A
+├── docker-compose.yml     # db, backend, gateway, frontend, qdrant, temporal
+├── render.yaml            # Render deployment blueprint
+└── .github/workflows/     # CI: backend, eval gate, gateway, frontend
 ```
 
 ---
 
 ## 🧪 Testing & Evaluation
 
-The project is heavily tested to ensure production reliability:
-
 ```bash
-# Run backend tests (pytest)
-cd backend && pytest tests/ -v
-
-# Run frontend tests (Vitest)
-cd frontend && npm test
+cd backend  && .venv/bin/python -m pytest -q            # 331 tests, offline
+cd gateway && npm ci && npm run typecheck && npm test   # 56 tests, strict TS
+cd frontend && npm ci && npm test                      # 15 tests
 ```
 
-### AI Evaluation Pipeline
-A dedicated evaluation suite measures the AI classification performance against a baseline:
+### AI evaluation pipeline
+
 ```bash
-python evaluation/evaluate.py
+# Classification accuracy / macro-F1 / per-category F1
+AI_PROVIDER=stub python evaluation/evaluate.py
+
+# Full harness: classification + schema validity + guardrails + cost/latency
+AI_PROVIDER=stub python evaluation/eval_suite.py
+
+# Regression gate used by CI
+AI_PROVIDER=stub python evaluation/eval_suite.py --check
 ```
-*Evaluates model Accuracy, Macro-F1, and Per-Category F1 against ~100 ground-truth labeled tickets.*
+
+Measured on the 92-ticket labeled set with the offline stub provider:
+
+| Metric | Value |
+|---|---|
+| Accuracy | 93.5% |
+| Macro-F1 | 0.94 |
+| Schema validity | 100% (92/92) |
+| Guardrail block rate | 21.7% |
+
+Baselines on the same data (`docs/model-comparison.md`): TF-IDF + LogReg 1.0/1.0,
+DistilBERT fine-tune 1.0/1.0, Llama 3.1 8B 79.3%/0.78. The 1.0 figures come from
+a 19-sample validation split and are dataset-specific — the point is honest
+comparison across approaches, not a benchmark claim.
 
 ---
 
 ## ☁️ Deployment
 
-*   **Backend & Database**: Deployed on **Render** using Docker and managed PostgreSQL.
-*   **Frontend**: Hosted globally via **Cloudflare Pages**.
-*   **CI/CD**: Automated via **GitHub Actions** (`ci.yml`, `deploy.yml`) ensuring code is tested and built before deployment.
+- **Backend & database**: Render, using Docker and managed PostgreSQL.
+- **Gateway**: deployable as its own container; set `JWT_SECRET` to the same value the backend signs with.
+- **Frontend**: Cloudflare Pages.
+- **CI/CD**: GitHub Actions (`ci.yml`, `deploy.yml`) runs the backend suite, the eval regression gate, gateway typecheck/build/test and frontend build/test before anything deploys.
 
 ---
 
 ## 📄 License
 
-This project is licensed under the MIT License.
+MIT.
