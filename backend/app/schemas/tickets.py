@@ -29,6 +29,16 @@ class TicketUpdate(BaseModel):
     priority: TicketPriority | None = None
 
 
+class TicketAssignRequest(BaseModel):
+    assignee_id: int | None = None
+    assignee_name: str | None = None
+    notes: str | None = None
+
+
+class TicketTransitionRequest(BaseModel):
+    status: TicketStatus
+
+
 class MessageCreate(BaseModel):
     content: str = Field(min_length=1, max_length=5000)
 
@@ -55,6 +65,13 @@ class TicketOut(BaseModel):
     ai_summary: str | None
     ai_confidence: float | None
     customer: UserPublic
+    assignee: UserPublic | None = None
+    first_response_due_at: datetime | None = None
+    resolution_due_at: datetime | None = None
+    first_responded_at: datetime | None = None
+    resolved_at: datetime | None = None
+    sla_status: str = "WITHIN_SLA"
+    escalation_level: int = 0
     created_at: datetime
     updated_at: datetime
 

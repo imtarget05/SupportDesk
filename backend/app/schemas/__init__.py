@@ -17,10 +17,12 @@ from app.schemas.dashboard import DashboardStats
 from app.schemas.tickets import (
     MessageCreate,
     MessageOut,
+    TicketAssignRequest,
     TicketCreate,
     TicketDetailOut,
     TicketOut,
     TicketPage,
+    TicketTransitionRequest,
     TicketUpdate,
 )
 

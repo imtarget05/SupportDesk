@@ -10,13 +10,16 @@ from app.models import User
 from app.schemas import (
     MessageCreate,
     MessageOut,
+    TicketAssignRequest,
     TicketCreate,
     TicketDetailOut,
     TicketOut,
     TicketPage,
+    TicketTransitionRequest,
     TicketUpdate,
 )
 from app.services import ticket_service, email_service as email_svc
+from app.services import audit as audit_svc
 from app.services.state_machine import InvalidTransition
 
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
@@ -68,6 +71,17 @@ def create_ticket(
     ticket = ticket_service.create_ticket(
         db, subject=body.subject, description=body.description, customer=customer
     )
+    audit_svc.log_event(
+        db,
+        action="ticket.create",
+        ticket_id=ticket.id,
+        workflow_id="manual",
+        stage="creation",
+        details={"subject": ticket.subject},
+        actor=customer.name,
+    )
+    db.commit()
+    db.refresh(ticket)
     return TicketOut.model_validate(ticket)
 
 
@@ -166,3 +180,88 @@ def add_message(
         db.commit()
         db.refresh(message)
     return MessageOut.model_validate(message)
+
+
+@router.post("/{ticket_id}/assign", response_model=TicketOut)
+def assign_ticket(
+    ticket_id: int,
+    body: TicketAssignRequest,
+    db: Session = Depends(get_db),
+    agent: User = Depends(require_agent),
+) -> TicketOut:
+    ticket = ticket_service.get_ticket_or_none(db, ticket_id)
+    if ticket is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
+    if body.assignee_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="assignee_id is required",
+        )
+    previous_assignee = ticket.assignee_id
+    try:
+        ticket = ticket_service.assign_ticket(db, ticket, assignee_id=body.assignee_id)
+    except ticket_service.AssigneeNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except ticket_service.AssigneeNotAgent as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
+
+    audit_svc.log_event(
+        db,
+        action="ticket.assign",
+        ticket_id=ticket.id,
+        workflow_id="manual",
+        stage="assignment",
+        details={
+            "assignee_id": ticket.assignee_id,
+            "assignee_name": ticket.assignee.name if ticket.assignee else body.assignee_name,
+            "previous_assignee_id": previous_assignee,
+            "notes": body.notes,
+        },
+        actor=agent.name,
+    )
+    db.commit()
+    db.refresh(ticket)
+    return TicketOut.model_validate(ticket)
+
+
+@router.post("/{ticket_id}/transition", response_model=TicketOut)
+def transition_ticket(
+    ticket_id: int,
+    body: TicketTransitionRequest,
+    db: Session = Depends(get_db),
+    agent: User = Depends(require_agent),
+) -> TicketOut:
+    ticket = ticket_service.get_ticket_or_none(db, ticket_id)
+    if ticket is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
+    old_status = ticket.status
+    try:
+        ticket = ticket_service.update_ticket(db, ticket, status=body.status)
+    except InvalidTransition as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+
+    audit_svc.log_event(
+        db,
+        action="ticket.transition",
+        ticket_id=ticket.id,
+        workflow_id="manual",
+        stage="transition",
+        details={"from_status": old_status, "to_status": body.status.value},
+        actor=agent.name,
+    )
+    db.commit()
+    db.refresh(ticket)
+    return TicketOut.model_validate(ticket)
+
+
+@router.get("/{ticket_id}/audit")
+def get_ticket_audit(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ticket = _load_visible_ticket(ticket_id, db, user)
+    entries = audit_svc.list_events(db, ticket_id=ticket.id)
+    return [audit_svc.event_to_dict(e) for e in entries]

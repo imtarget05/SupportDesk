@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: supportdesk-outbox-worker
+  namespace: portfolio
+  labels:
+    app: supportdesk-outbox-worker
+    role: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: supportdesk-outbox-worker
+  template:
+    metadata:
+      labels:
+        app: supportdesk-outbox-worker
+        role: worker
+    spec:
+      serviceAccountName: portfolio-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: outbox-worker
+        image: supportdesk-backend:latest
+        imagePullPolicy: IfNotPresent
+        command: ["python", "-m", "app.workers.outbox_publisher"]
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: portfolio-secrets
+              key: SUPPORTDESK_DATABASE_URL
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "supportdesk-kafka:9092"
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "250m"
+            memory: "256Mi"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: supportdesk-notification-worker
+  namespace: portfolio
+  labels:
+    app: supportdesk-notification-worker
+    role: consumer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: supportdesk-notification-worker
+  template:
+    metadata:
+      labels:
+        app: supportdesk-notification-worker
+        role: consumer
+    spec:
+      serviceAccountName: portfolio-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: notification-worker
+        image: supportdesk-backend:latest
+        imagePullPolicy: IfNotPresent
+        command: ["python", "-m", "app.workers.notification_worker"]
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: portfolio-secrets
+              key: SUPPORTDESK_DATABASE_URL
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "supportdesk-kafka:9092"
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "250m"
+            memory: "256Mi"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]

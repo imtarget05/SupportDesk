@@ -106,7 +106,15 @@ any request — including an AI call — reaches the Python service. Only
 - **RAG** over the knowledge base using Qdrant (embedded or server) with an in-process LlamaIndex fallback that degrades rather than fails when a store is unreachable.
 - **Similar-ticket retrieval** over per-ticket embeddings. Each vector records the embedder and width that produced it, so vectors from different embedders are never compared.
 
+**Event-Driven Architecture & SLA Engine**
+- **Transactional Outbox Pattern**: Ticket lifecycle mutations (`TicketCreated`, `TicketAssigned`, `TicketStatusChanged`, `TicketResolved`) write atomic domain events into `outbox_events` within the same DB transaction, preventing split-brain states.
+- **Outbox Publisher Worker**: Poller batch-reads pending events and dispatches them to Apache Kafka (`app.workers.outbox_publisher`).
+- **Kafka Topics with Offline Resilient Fallback**: Event topics (`ticket-events`, `ticket-events-retry`, `ticket-events-dlq`) with automatic in-memory buffering when Kafka is offline, ensuring deterministic test execution.
+- **Consumer Idempotency & DLQ**: Background consumers (`app.workers.notification_worker`) check `processed_events` before execution, ensuring exactly-once delivery; failed events route to `ticket-events-retry` and terminate at `ticket-events-dlq` after 3 failed attempts.
+- **Priority-based SLA Engine**: Target calculation (Urgent 1h/4h, High 4h/8h, Normal 8h/24h, Low 24h/48h), proactive 80% warning alerts, breach auto-escalation, and live database metrics exposed at `GET /api/sla/metrics`.
+
 **Providers**: Anthropic (Claude), OpenAI-compatible, Cloudflare Workers AI, and a deterministic offline stub. The entire test suite runs with no API key.
+
 
 ---
 
@@ -192,6 +200,8 @@ the gateway's own `/healthz` and `/readyz`.
 - **Agent-scoped operations.** `/api/metrics*` exposes call counts, token totals, costs and latencies; it is agent-only, so an unauthenticated capability is not hiding in the schema.
 - **Guest submissions are deliberate, and rate limited.** `POST /api/tickets` must work before signup. The control that bounds it is a per-client-IP limit (`TICKET_CREATE_RATE_LIMIT`, default `10` per `TICKET_CREATE_RATE_WINDOW_S` seconds) returning `429` with `Retry-After`. Authenticated submitters are not charged against it. The bucket keys on the peer address, not `X-Forwarded-For`, which a client could spoof; behind a TLS-terminating proxy, run uvicorn with `--proxy-headers --forwarded-allow-ips=<proxy>`.
 - **AI output is untrusted.** Deterministic guardrails reject refund/compensation commitments, facts absent from the thread, prompt-injection echo, and internal detail (a tool error echoed into a draft). `AI_GUARDRAIL_MODE=reject` returns `502` and leaves the ticket untouched; `fallback` substitutes a neutral draft. Tool calls are audited, and all tools are read-only.
+- **Token storage tradeoff (known limitation).** The SPA keeps the JWT in `localStorage` (`frontend/src/lib/api.ts`) — this is *not* presented as best-practice production auth. An HttpOnly-cookie + CSRF architecture would be strictly better, but migrating would require coordinated backend/gateway/frontend changes with a high regression risk before the current milestone, so it stays as a documented tradeoff: XSS mitigations in place are React's default output escaping (no `dangerouslySetInnerHTML` in app code), short token expiry, and backend re-authorization on every request so a stolen token's blast radius is bounded by role checks. Do not claim "secure cookie auth" for this project.
+- **Assignment and audit are durable.** `POST /api/tickets/{id}/assign` persists `assignee_id` (agent-only target, enforced in `ticket_service.assign_ticket`) and writes a `ticket.assign` row to `audit_events`; the automation endpoint executes synchronously (see its docstring) rather than pretending to queue durable jobs.
 - **Not implemented, deliberately.** No PII redaction, no SLA engine, no multi-tenancy, no fine-grained RBAC beyond customer/agent. `docs/spec.md` records these as out of scope.
 
 ---

@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from app.api import auth, dashboard, tickets, webhooks
+from app.api import auth, automation, dashboard, sla, tickets, webhooks
 from app.api.ai import router as ai_router
 from app.api.metrics import router as metrics_router
 from app.config import settings
@@ -42,8 +42,34 @@ _run_schema_setup()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    worker_task = None
+    if os.environ.get("START_BACKGROUND_WORKERS", "").lower() in ("true", "1"):
+        import asyncio
+        from app.workers.outbox_publisher import publish_outbox_batch
+        from app.workers.notification_worker import create_notification_consumer, process_buffered_events
+        from app.database import SessionLocal
+
+        async def _background_worker_loop():
+            consumer = create_notification_consumer()
+            while True:
+                try:
+                    db = SessionLocal()
+                    try:
+                        publish_outbox_batch(db)
+                        process_buffered_events(db, consumer)
+                    finally:
+                        db.close()
+                except Exception as e:
+                    logger.warning("In-process background worker error: %s", e)
+                await asyncio.sleep(2.0)
+
+        worker_task = asyncio.create_task(_background_worker_loop())
+        logger.info("Started in-process background worker loop for outbox and notifications")
     yield
+    if worker_task:
+        worker_task.cancel()
     engine.dispose()
+
 
 
 def _database_ready() -> bool:
@@ -70,6 +96,8 @@ def create_app() -> FastAPI:
     app.include_router(tickets.router)
     app.include_router(webhooks.router)
     app.include_router(ai_router)
+    app.include_router(automation.router)
+    app.include_router(sla.router)
     app.include_router(metrics_router, prefix="/api", tags=["metrics"])
 
     app.include_router(dashboard.router)

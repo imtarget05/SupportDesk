@@ -1,4 +1,6 @@
-from sqlalchemy import Float, ForeignKey, String, Text
+from datetime import datetime
+
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -26,7 +28,25 @@ class Ticket(TimestampMixin, Base):
     ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    customer = relationship("User")
+    # SLA tracking: priority-based response and resolution targets
+    first_response_due_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, index=True
+    )
+    resolution_due_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, index=True
+    )
+    first_responded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    sla_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="WITHIN_SLA", index=True
+    )
+    escalation_level: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    customer = relationship("User", foreign_keys=[customer_id])
+    assignee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), index=True, nullable=True
+    )
+    assignee = relationship("User", foreign_keys=[assignee_id])
     messages = relationship(
         "Message",
         back_populates="ticket",

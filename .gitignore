@@ -54,3 +54,7 @@ skill-observations/
 .impeccable/
 .codegraph/
 docs/reference-configs/
+
+.terraform/
+*.tfstate*
+.terraform.lock.hcl
