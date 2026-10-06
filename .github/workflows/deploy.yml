@@ -58,8 +58,8 @@ jobs:
           RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
         run: |
           if [ -z "$RENDER_API_KEY" ] || [ -z "$RENDER_SERVICE_ID" ]; then
-            echo "SKIP: RENDER_API_KEY / RENDER_SERVICE_ID secrets not configured — Render redeploy disabled."
-            exit 0
+            echo "::error::RENDER_API_KEY / RENDER_SERVICE_ID secrets not configured — production backend cannot be redeployed. A skipped deploy must never count as success. Add both secrets (target the canonical kh02 service) or remove this job deliberately."
+            exit 1
           fi
           echo "Triggering redeploy on Render..."
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
@@ -84,8 +84,8 @@ jobs:
           RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
         run: |
           if [ -z "$RENDER_API_KEY" ] || [ -z "$RENDER_SERVICE_ID" ]; then
-            echo "SKIP: Render secrets not configured — deploy wait disabled."
-            exit 0
+            echo "::error::Render secrets not configured — cannot poll production health. Failing loudly instead of skipping."
+            exit 1
           fi
 
           SERVICE_HOST=$(curl -s -H "Authorization: Bearer ${RENDER_API_KEY}" \
@@ -153,6 +153,10 @@ jobs:
           npm ci
 
       - name: Build frontend
+        env:
+          # Canonical production backend (supportdesk-api-zpkv is suspended and
+          # must never be a fallback). Override via repo variable VITE_API_URL.
+          VITE_API_URL: ${{ vars.VITE_API_URL || 'https://supportdesk-api-kh02.onrender.com' }}
         run: |
           cd frontend
           npm run build
@@ -162,4 +166,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy frontend/dist --project-name supportdesk
+          command: pages deploy frontend/dist --project-name ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'supportdesk-aht' }} --branch=main
