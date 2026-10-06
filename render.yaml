@@ -33,6 +33,7 @@ services:
       - key: START_BACKGROUND_WORKERS
         value: "true"
       - key: CORS_ORIGINS
+        value: https://supportdesk-aht.pages.dev
         sync: false
 databases:
   - name: supportdesk-db
