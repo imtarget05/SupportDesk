@@ -26,6 +26,25 @@ latency tracing, and an evaluation harness wired into CI as a regression gate.
 > each job requirement to the code that satisfies it — including the parts that
 > are **not** implemented.
 
+## 🚦 Production status (audited 2026-10-06)
+
+| Component | URL | State |
+|---|---|---|
+| Frontend (Cloudflare Pages) | https://supportdesk-aht.pages.dev | Serving; API origin is baked at build time (`VITE_API_URL`) |
+| API (Render, canonical) | https://supportdesk-api-kh02.onrender.com | `GET /api/health` → 200; business routes behind JWT |
+| Older Render instance | `supportdesk-api-zpkv.onrender.com` | **Suspended** — never referenced by workflows, docs or the Pages build |
+
+Owner actions still required (dashboards — the code side is ready):
+
+- Render → service `supportdesk-api-kh02` → set `CORS_ORIGINS=https://supportdesk-aht.pages.dev`
+  (browser preflight fails until then, even though `/api/health` answers curl).
+- GitHub → verify the `RENDER_SERVICE_ID` secret targets the **kh02** service
+  (not the suspended instance), then re-run CD so Pages is rebuilt with
+  `VITE_API_URL=https://supportdesk-api-kh02.onrender.com`.
+- Verified CV claims live in [`docs/CV_EVIDENCE.md`](docs/CV_EVIDENCE.md): the
+  eval dataset is **92 records** (not "100+"); no "30% misclassification
+  reduction" claim is made.
+
 ---
 
 ## The four problems this actually solves
