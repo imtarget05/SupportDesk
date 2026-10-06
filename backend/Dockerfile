@@ -34,7 +34,7 @@ RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /srv
 
 ENV PATH=/srv/.local/bin:$PATH \
-    PYTHONPATH=/srv/.local/lib/python3.12/site-packages \
+    PYTHONPATH=/srv/backend:/srv/.local/lib/python3.12/site-packages \
     PORT=8000
 
 USER appuser

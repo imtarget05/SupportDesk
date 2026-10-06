@@ -188,7 +188,8 @@ if len(settings.jwt_secret) < 32:
 parsed = urlparse(settings.database_url)
 if not parsed.scheme:
     raise RuntimeError("DATABASE_URL must have a scheme")
-if parsed.scheme not in {"sqlite", "postgresql", "postgres", "mysql"}:
+valid_schemes = {"sqlite", "postgresql", "postgres", "mysql"}
+if not any(parsed.scheme == s or parsed.scheme.startswith(s + "+") for s in valid_schemes):
     raise RuntimeError(f"Unsupported database dialect: {parsed.scheme}")
-if _is_deployment() and parsed.scheme not in {"postgresql", "postgres"}:
+if _is_deployment() and not any(parsed.scheme == s or parsed.scheme.startswith(s + "+") for s in {"postgresql", "postgres"}):
     raise RuntimeError("DATABASE_URL must use PostgreSQL in deployment")

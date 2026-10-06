@@ -20,6 +20,17 @@ config = context.config
 # from alembic.ini even when the app engine points at Postgres.
 _db_url = os.getenv("DATABASE_URL")
 if _db_url:
+    if _db_url.startswith("postgres://"):
+        _db_url = "postgresql://" + _db_url[len("postgres://"):]
+    if _db_url.startswith("postgresql://"):
+        try:
+            import psycopg  # noqa: F401
+        except ImportError:
+            try:
+                import psycopg2  # noqa: F401
+                _db_url = "postgresql+psycopg2://" + _db_url[len("postgresql://"):]
+            except ImportError:
+                pass
     config.set_main_option("sqlalchemy.url", _db_url)
 
 # Interpret the config file for Python logging.
@@ -38,7 +49,7 @@ target_metadata = Base.metadata
 
 
 def _is_postgresql_url(url: str) -> bool:
-    return url.lower().startswith(("postgresql://", "postgres://"))
+    return url.lower().startswith(("postgresql://", "postgres://", "postgresql+"))
 
 
 def run_migrations_offline() -> None:

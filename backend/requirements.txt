@@ -40,4 +40,5 @@ sentence-transformers>=2.7
 scikit-learn>=1.5
 joblib>=1.4
 psycopg2-binary>=2.9  # Postgres driver for prod DATABASE_URL (SQLite needs no driver)
+psycopg[binary]>=3.2
 aiokafka>=0.10.0
