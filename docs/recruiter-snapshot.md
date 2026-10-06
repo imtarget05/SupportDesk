@@ -45,13 +45,8 @@ a refund on its own authority.
 
 ## Numbers
 
-331 backend tests · 56 gateway tests · 15 frontend tests · 6 Alembic migrations ·
+361 backend tests (1 skipped) · 56 gateway tests · 15 frontend tests · 6 Alembic migrations ·
 all offline, no API key.
-
-> Note: the verified HEAD count is **361 backend passed + 1 skipped**
-> (see `docs/CV_EVIDENCE.md`). The "331" figure above predates the
-> outbox/Kafka/SLA, endpoint-gap and error-analysis suites; update it to 361
-> when this snapshot is next re-verified end to end.
 
 ## Caveats, stated plainly
 

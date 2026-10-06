@@ -15,7 +15,7 @@ earlier audit.
 ```
 cd backend
 AI_PROVIDER=stub .venv/bin/python -m pytest -p no:cacheprovider
--> 331 test functions, 0 failures, 1 skipped (offline: no API key, no network)
+-> 361 passed, 1 skipped (offline: no API key, no network)
 
 cd gateway
 npm ci && npm run typecheck && npm test

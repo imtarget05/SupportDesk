@@ -135,7 +135,7 @@ AI_PROVIDER=stub python evaluation/eval_suite.py --check
 
 Run in this repository; the commands are at the top of this file.
 
-- **Backend suite**: 331 test functions, all passing offline (`AI_PROVIDER=stub`,
+- **Backend suite**: 361 tests passed + 1 skipped, all offline (`AI_PROVIDER=stub`,
   no API key, no external services).
 - **Gateway**: 56 Vitest tests; `tsc --noEmit` clean under `strict`,
   `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`.

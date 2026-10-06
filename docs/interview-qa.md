@@ -8,7 +8,7 @@ exactly the wrong place to discover that gap yourself.
 Re-run the anchors before an interview so the numbers you quote are current:
 
 ```bash
-cd backend  && AI_PROVIDER=stub .venv/bin/python -m pytest -q   # 331 tests, offline
+cd backend  && AI_PROVIDER=stub .venv/bin/python -m pytest -q   # 361 passed + 1 skipped, offline
 cd gateway && npm run typecheck && npm test                     # 56 tests, strict TS
 cd frontend && npm test                                          # 15 tests
 AI_PROVIDER=stub python evaluation/eval_suite.py --check        # exit 0
@@ -521,7 +521,8 @@ Evals measure whether the system output is good. They fail for different reasons
 and I would not conflate them.
 
 **Deeper:**
-- 331 backend tests are deterministic and offline. They prove behaviour under
+- 361 backend tests (plus 1 skipped) are deterministic and offline. They prove
+  behaviour under
   specified conditions.
 - The eval measures quality on data, so it can pass while the code is broken
   (the classifier is fine, the endpoint 500s) and fail while the code is correct
@@ -784,7 +785,7 @@ representative value.
 ## Testing strategy
 
 
-### Q: "331 tests" means what, exactly?
+### Q: "361 tests" means what, exactly?
 
 **Short answer.** It means the specified behaviours are exercised, offline, with
 no API key — and it does **not** mean the system is production-ready.
@@ -800,7 +801,7 @@ no API key — and it does **not** mean the system is production-ready.
 - Eval: the harness's own arithmetic and its regression gate.
 
 **Limitations the count hides:**
-- 331 tests can all pass while the system is unusable — no test proves the UI is
+- 361 tests can all pass while the system is unusable — no test proves the UI is
   good or that the prompt strategy is right.
 - The stub path is exercised far more than any real provider.
 - Nothing proves the Temporal path runs; indeed, as above, it does not.
