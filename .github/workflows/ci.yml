@@ -38,7 +38,13 @@ jobs:
         run: |
           cd backend
           python -m alembic history
-          python -m alembic upgrade head --sql > /dev/null
+          # Offline SQL generation must use the PostgreSQL dialect. Batch
+          # migrations (ALTER COLUMN etc.) require table reflection on SQLite,
+          # which is impossible without a live DB in --sql mode. The
+          # placeholder URL is never connected to — offline mode skips engine
+          # creation entirely (see backend/alembic/env.py).
+          DATABASE_URL="postgresql://ci:ci@localhost:5432/ci" \
+            python -m alembic upgrade head --sql > /dev/null
       - name: Evaluation smoke (stub provider)
         run: |
           AI_PROVIDER=stub python evaluation/evaluate.py
