@@ -75,12 +75,12 @@ curl -X POST https://<api>.onrender.com/api/auth/bootstrap \
 
 1. Cloudflare dashboard → Pages → Connect repo → project name `<app>`.
 2. Build settings: root `frontend/`, build `npm ci && npm run build`, output `dist`.
-3. Build env: `VITE_API_URL=https://<api>.onrender.com` (Vite bakes it at build time — changing it requires rebuild).
-4. Deploy → note the `https://<app>.pages.dev` URL. SPA routes (`/agent`, `/tickets/:id`) work via `public/_redirects` (`/* /index.html 200`).
+3. Build env: `VITE_API_URL=https://supportdesk-api-kh02.onrender.com` (canonical production backend; Vite bakes it at build time — changing it requires rebuild). Never use the suspended `supportdesk-api-zpkv.onrender.com`.
+4. Deploy → note the `https://<app>.pages.dev` URL (live project: **`supportdesk-aht`** → `https://supportdesk-aht.pages.dev`). SPA routes (`/agent`, `/tickets/:id`) work via `public/_redirects` (`/* /index.html 200`).
 
 ## 6. Wire CORS and redeploy API
 
-1. Render → service → Environment → set `CORS_ORIGINS=https://<app>.pages.dev` → Save (triggers redeploy).
+1. Render → **canonical service `supportdesk-api-kh02`** → Environment → set `CORS_ORIGINS=https://supportdesk-aht.pages.dev` → Save (triggers redeploy). Without this, browser preflight from Pages fails with `400 Disallowed CORS origin` even though `/api/health` returns 200 to curl.
 2. Render terminates HTTPS at the boundary; no extra proxy config needed.
 
 ## 7. Prod smoke test (real user flow)
@@ -122,7 +122,8 @@ push to main → CI (pytest + build + leak scan + alembic + eval smoke)
 - CI jobs: `backend` (pytest, secret scan, alembic, eval smoke) + `frontend` (npm build + tests).
 - CD triggers: `workflow_run` (CI completed successfully on `main`) + `workflow_dispatch` (manual trigger from Actions UI).
 - Backend CD: builds the Docker image via `docker/build-push-action`, pushes to GHCR tagged with the full commit SHA + `latest`, then calls the Render deploy API, waits for the deploy to reach `live` (up to 20 minutes — free tier builds are slow), then polls `/api/health` until it returns 200.
-- Frontend CD: deploys `frontend/dist` to the Cloudflare Pages project **`supportdesk`** (live at `https://supportdesk-aht.pages.dev`) via `wrangler pages deploy` on every CI-green push.
+- Frontend CD: deploys `frontend/dist` to the Cloudflare Pages project **`supportdesk-aht`** (live at `https://supportdesk-aht.pages.dev`) via `wrangler pages deploy` on every CI-green push. Override the project name with repo variable `CLOUDFLARE_PAGES_PROJECT` if it ever changes.
+- Backend CD **fails loudly** when `RENDER_API_KEY`/`RENDER_SERVICE_ID` are missing: a skipped deploy is never reported as success.
 - **Fail-closed**: if CI fails, CD does not run. If Render redeploy fails, the job fails and no further steps run.
 
 ### Required repository secrets
