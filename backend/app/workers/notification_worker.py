@@ -8,8 +8,11 @@ import logging
 import time
 from typing import Any
 
+from sqlalchemy.orm import Session
+
 from app.database import SessionLocal
 from app.services.email_service import send_agent_reply
+from app.services.kafka_producer import default_producer
 from app.workers.event_consumer import EventConsumer
 
 logger = logging.getLogger(__name__)
