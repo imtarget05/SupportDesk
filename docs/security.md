@@ -57,7 +57,7 @@ The AI service layer executes deterministic safety guardrails before returning o
 |---|---|---|
 | **Prompt Injection Filter** | Adversarial user text manipulating system prompts | Regex pattern screening & semantic heuristics in `services/guardrails.py` |
 | **Output Commitment Guard** | LLM promising unauthorized refunds, SLAs, or legal guarantees | Deterministic regex and classification scanner |
-| **PII Redaction** | Leakage of customer sensitive data (emails, credit cards, phones) | Regex-based token replacement prior to provider dispatch |
+| **PII Redaction** | Leakage of customer sensitive data (emails, credit cards, phones) | **Not implemented** — no redaction exists in this repo (`grep redact/pii` = 0 hits). Do not claim it. Audit details are secret-scrubbed (`services/audit.py`) but ticket/provider text is not redacted. |
 | **Human-In-The-Loop (HITL)** | Autonomous execution of high-risk actions (refunds, escalations) | LangGraph checkpoint interrupts & approval gate |
 
 ---
@@ -65,4 +65,4 @@ The AI service layer executes deterministic safety guardrails before returning o
 ## 4. Auditability & Non-Repudiation
 
 - **Immutable Audit Trail**: Every ticket state transition (`NEW` → `IN_PROGRESS` → `RESOLVED` → `CLOSED`), assignment, and automated action generates an immutable audit record in PostgreSQL.
-- **Transactional Outbox**: Events published to Azure Service Bus utilize the Transactional Outbox pattern with idempotency keys (`requires_duplicate_detection = true`), preventing lost updates and duplicate processing during retries.
+- **Transactional Outbox**: Events published to Kafka (with in-memory fallback offline) utilize the Transactional Outbox pattern with idempotency keys (`ProcessedEvent`), preventing lost updates and duplicate processing during retries.

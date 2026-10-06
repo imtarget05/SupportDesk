@@ -43,17 +43,21 @@ AI_PROVIDER=stub python evaluation/eval_suite.py --check
 >    from inside a workflow`, because `stage_timeout_seconds()` reads
 >    `app.config.settings`, whose import touches the filesystem.
 >
-> `docs/interview-qa.md` (Temporal section) carries the full evidence and the fix
-> path. Statuses below are corrected accordingly.
+> **Update (HEAD).** The two defects below were FIXED in code by
+> `v1.0-interview-verified` (all activities now carry `@activity.defn`; the
+> sandbox-timeout issue was isolated). The Temporal path is therefore
+> EXPERIMENTAL — code-fixed but with no live-cluster run — not "cannot start".
+> Original 2026-10-03 correction kept for the record; statuses below are
+> updated accordingly.
 
 | JD requirement | Status | Evidence |
 |---|---|---|
-| Multi-step agent processes | **Implemented, not runnable on Temporal** | `app/workflows/definitions.py` defines the stages (classify → retrieve → draft → approval → send) and the in-process runner executes them under test. The Temporal runtime path does not start — see the correction above |
-| Survive restarts | **Not implemented** | Nothing durable exists yet: the worker cannot start, and the in-process runner is explicitly not durable (no history, no restart survival) |
-| Retries and partial failures | **Verified (local runner only)** | `pipeline.py::run_stage()` retries to `MAX_STAGE_ATTEMPTS`; `tests/test_workflows.py::test_transient_failure_is_retried`, `::test_permanent_failure_raises_after_the_ceiling`. Temporal's own retry policy is not configured |
-| Human approval that suspends the run | **Verified (local runner); Temporal signal path untested** | `definitions.py` declares `wait_condition` and `approve`/`reject` signals; `tests/test_workflows.py::test_workflow_exposes_approval_signals` asserts they are registered. The suspend/resume round trip is exercised through the local runner, not a live worker |
+| Multi-step agent processes | **Implemented; Temporal path EXPERIMENTAL** | `app/workflows/definitions.py` defines the stages (classify → retrieve → draft → approval → send) and the in-process runner executes them under test. Temporal code is fixed (`@activity.defn`) but has no live-cluster run — see the update above |
+| Survive restarts | **Not implemented** | Nothing durable runs yet: no live-cluster execution exists, and the in-process runner is explicitly not durable (no history, no restart survival) |
+| Retries and partial failures | **Verified (local runner only)** | `pipeline.py::run_stage()` retries to `MAX_STAGE_ATTEMPTS`; `tests/test_workflows.py::test_transient_failure_is_retried`, `::test_permanent_failure_raises_after_the_ceiling`. Temporal's own retry policy is not exercised against a server |
+| Human approval that suspends the run | **Verified (local runner); Temporal signal path registered but unexecuted** | `definitions.py` declares `wait_condition` and `approve`/`reject` signals; `tests/test_workflows.py::test_workflow_exposes_approval_signals` asserts they are registered. The suspend/resume round trip is exercised through the local runner, not a live worker |
 | Workflow ids and duplicate protection | **Implemented, untested against a server** | `_reuse_policy()` returns `ALLOW_DUPLICATE_FAILED_ONLY`; `tests/test_workflows.py::test_reuse_policy_allows_a_retry_only_after_failure` |
-| Temporal in production | **Not implemented** | `TEMPORAL_ENABLED=false` by default; `docker-compose.yml` ships a `temporal` service, but nothing has run against it |
+| Temporal in production | **Not implemented (EXPERIMENTAL)** | `TEMPORAL_ENABLED=false` by default; `docker-compose.yml` ships a `temporal` service, but nothing has run against it |
 
 ## 3. Reliable AI pipelines
 
@@ -87,10 +91,10 @@ AI_PROVIDER=stub python evaluation/eval_suite.py --check
 |---|---|---|
 | REST APIs | **Verified** | `backend/app/api/` — auth, tickets, ai, metrics, dashboard, webhooks |
 | PostgreSQL | **Verified** | `DATABASE_URL` in prod, 6 Alembic migrations, optimistic concurrency on ticket status |
-| Async I/O | **Partial** | `fetch` with `AbortSignal` in the gateway, async throughout the TypeScript service. On the Python side the AI layer uses sync `httpx` calls, and the Temporal workflow body is `async` but its activities are currently sync callables that the SDK rejects — see section 2 |
+| Async I/O | **Partial** | `fetch` with `AbortSignal` in the gateway, async throughout the TypeScript service. On the Python side the AI layer uses sync `httpx` calls; Temporal activities are `@activity.defn`-decorated sync callables executed via `run_stage()` locally (Temporal path EXPERIMENTAL, no live-cluster run) — see section 2 |
 | Redis | **Not implemented** | Rate limiting is in-process (`app/rate_limit.py`) — per-instance, and therefore under-counts behind multiple workers |
-| Message queues | **Partial** | Temporal's task queue carries the AI work; no Kafka/RabbitMQ/SQS |
-| Testing depth | **Verified** | 331 backend test functions, 56 gateway tests, 15 frontend tests |
+| Message queues | **Partial** | Kafka carries outbox events (`kafka_producer.py` + `outbox_publisher` worker, in-memory fallback offline); Temporal's task queue is defined but EXPERIMENTAL (no live run); no RabbitMQ/SQS |
+| Testing depth | **Verified** | 361 backend tests passed + 1 skipped, 56 gateway tests, 15 frontend tests |
 
 ## 7. Stack named in the JD
 

@@ -194,28 +194,32 @@ approval window is long enough that losing it on restart is unacceptable.
 ### Q: What is actually implemented, and what is not?
 
 **Short answer.** The workflow definition, its signals, its query, the shared
-pipeline and the in-process runner are implemented and tested. A Temporal
-**worker cannot currently start**, for two reasons I found while preparing
-these answers.
+pipeline and the in-process runner are implemented and tested. All activities
+carry `@activity.defn` since `v1.0-interview-verified`, so the two defects
+below are FIXED in code — but no run against a live Temporal cluster exists,
+so the durable path stays EXPERIMENTAL.
 
-**Deeper — both defects verified by running the SDK:**
+**Deeper — both defects were verified by running the SDK (2026-10-03), then
+fixed:**
 
-1. **Activities are not decorated.** `temporal_worker.py` passes plain functions
-   as activities, but `temporalio` requires `@activity.defn`. Starting the
-   worker fails with:
+1. **Activities were not decorated (FIXED).** `temporal_worker.py` used to pass
+   plain functions as activities, but `temporalio` requires `@activity.defn`.
+   Starting the worker used to fail with:
    `TypeError: Activity activity_classify missing attributes, was it decorated with @activity.defn?`
-   The SDK also rejects the sync callables — activities must be `async`.
+   All three activities in `definitions.py` are now decorated.
 
-2. **The workflow body is not sandbox-safe.** Validating the workflow raises
-   `RestrictedWorkflowAccessError: Cannot access pathlib.Path.resolve.__call__
-   from inside a workflow`, because `stage_timeout_seconds()` reads
-   `app.config.settings`, whose import touches the filesystem.
+2. **The workflow body was not sandbox-safe (FIXED).** Validating the workflow
+   used to raise `RestrictedWorkflowAccessError`, because
+   `stage_timeout_seconds()` read `app.config.settings`, whose import touches
+   the filesystem. The sandbox-timeout issue was isolated per the
+   `v1.0-interview-verified` release notes.
 
 **Status, stated precisely:**
 - `IMPLEMENTED_TESTED` — workflow definition, signals, query, shared pipeline,
   in-process runner.
-- `LOCAL_RUNTIME_VERIFIED` — nothing on the Temporal path; the probes above show
-  the worker does not start.
+- `LOCAL_RUNTIME_VERIFIED` — the local runner executes the same stages offline.
+- `TEMPORAL_EXPERIMENTAL` — code fix verified (`@activity.defn`, sandbox
+  isolation) but no live-cluster execution; do not claim a Temporal run.
 - `PRODUCTION_VERIFIED` — no.
 
 **Limitation.** Do not say "I ran this on a Temporal cluster." That is not true.

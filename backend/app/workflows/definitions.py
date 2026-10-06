@@ -92,10 +92,6 @@ class ApprovalState:
 class WorkflowStages:
     """Per-stage results, accumulated across the run."""
 
-@dataclass
-class WorkflowStages:
-    """Per-stage results, accumulated across the run."""
-
     evidence: list[dict[str, Any]] = field(default_factory=list)
     events: list[str] = field(default_factory=list)
 

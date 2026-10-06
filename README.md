@@ -264,7 +264,7 @@ the gateway's own `/healthz` and `/readyz`.
 ## 🧪 Testing & Evaluation
 
 ```bash
-cd backend  && .venv/bin/python -m pytest -q            # 331 tests, offline
+cd backend  && .venv/bin/python -m pytest -q            # 361 tests + 1 skip, offline
 cd gateway && npm ci && npm run typecheck && npm test   # 56 tests, strict TS
 cd frontend && npm ci && npm test                      # 15 tests
 ```

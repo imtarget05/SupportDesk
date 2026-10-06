@@ -15,7 +15,6 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from app.config import settings
 from app.workflows.definitions import (
     activity_classify,
     activity_draft,
@@ -73,8 +72,3 @@ def run_stage(
     raise StageError(
         f"{getattr(stage, '__name__', 'stage')} failed after {attempts} attempts: {last_error}"
     ) from last_error
-
-
-def stage_timeout_seconds() -> int:
-    """Activity timeout used by the Temporal workflow, from settings."""
-    return int(getattr(settings, "workflow_stage_timeout_s", 120) or 120)

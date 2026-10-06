@@ -148,7 +148,9 @@ Go to **Settings → Secrets and variables → Actions → New repository secret
    - Render redeploys the service from the new image.
    - `/api/health` is polled until it returns `{"status":"ok"}`.
    - Frontend is rebuilt and deployed to Cloudflare Pages.
-4. If any secret is missing, the relevant CD step is skipped with a clear log message — the workflow won't fail on missing secrets, it just won't deploy.
+4. If any secret is missing, the relevant CD job fails loudly (fail-closed) — a
+   skipped deploy is never reported as success. See `deploy.yml`: the backend
+   job exits 1 when `RENDER_API_KEY`/`RENDER_SERVICE_ID` are unset.
 
 ### Manual trigger
 

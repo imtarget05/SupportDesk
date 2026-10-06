@@ -19,13 +19,14 @@ a refund on its own authority.
   counts, a versioned-rate-table USD cost, latency and outcome. `GET
   /api/metrics/ai` gives per-model p50/p95, error rate and cost per successful
   call. An unpriced model reports `null`, not a fabricated zero.
-- **Durable AI work — defined, not yet runnable.** The ticket pipeline is
-  written as a Temporal workflow with a real human-approval gate. Be precise:
-  the definition, signals and query are tested, but a Temporal worker cannot
-  currently start (activities lack `@activity.defn`, and the workflow body is not
-  sandbox-safe), and nothing has run against a cluster. What works today is the
-  in-process runner, which is explicitly not durable. `docs/interview-qa.md`
-  carries the evidence.
+- **Durable AI work — defined, tested, experimental.** The ticket pipeline is
+  written as a Temporal workflow with a real human-approval gate
+  (`@activity.defn` on all activities since v1.0-interview-verified). Be precise:
+  the definition, signals and query are tested and the local runner executes the
+  same stages offline, but nothing has run against a live Temporal cluster, so
+  the durable path is EXPERIMENTAL until cluster execution evidence exists.
+  What works today is the in-process runner, which is explicitly not durable.
+  `docs/interview-qa.md` carries the evidence.
 - **Tool calling with a boundary.** The agent loop calls read-only tools whose
   arguments are validated by the same Pydantic model that generates the
   advertised JSON schema. Loop detection and a step ceiling stop runaway runs.
@@ -46,6 +47,11 @@ a refund on its own authority.
 
 331 backend tests · 56 gateway tests · 15 frontend tests · 6 Alembic migrations ·
 all offline, no API key.
+
+> Note: the verified HEAD count is **361 backend passed + 1 skipped**
+> (see `docs/CV_EVIDENCE.md`). The "331" figure above predates the
+> outbox/Kafka/SLA, endpoint-gap and error-analysis suites; update it to 361
+> when this snapshot is next re-verified end to end.
 
 ## Caveats, stated plainly
 
