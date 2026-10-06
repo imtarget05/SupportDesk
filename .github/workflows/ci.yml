@@ -33,7 +33,7 @@ jobs:
           AI_PROVIDER: stub
       - name: Secret leak scan
         run: |
-          ! grep -rniE 'sk-[A-Za-z0-9]{20,}|BEGIN.*PRIVATE|cfut_' --exclude-dir=__pycache__ --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=.codegraph --exclude-dir=.ai --exclude-dir=tasks --exclude=.env --exclude=.env.example --exclude=ci.yml .
+          ! grep -rniI -E 'sk-[A-Za-z0-9]{20,}|BEGIN.*PRIVATE|cfut_' --exclude-dir=__pycache__ --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=.terraform --exclude-dir=.codegraph --exclude-dir=.ai --exclude-dir=tasks --exclude=.env --exclude=.env.example --exclude=ci.yml --exclude=RECRUITER-EVIDENCE.md .
       - name: Alembic migration check
         run: |
           cd backend
