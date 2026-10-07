@@ -26,20 +26,20 @@ latency tracing, and an evaluation harness wired into CI as a regression gate.
 > each job requirement to the code that satisfies it — including the parts that
 > are **not** implemented.
 
-## 🚦 Production status (re-audited 2026-10-07)
+## 🚦 Production status (re-audited 2026-10-07, post-CD)
 
 | Component | URL | State |
 |---|---|---|
-| Frontend (Cloudflare Pages) | https://supportdesk-aht.pages.dev | Serving (200), but the **currently deployed bundle still points at the suspended `zpkv` backend**. CD builds with the canonical `kh02` origin; the Pages deploy step fails with Cloudflare `Authentication error [code: 10000]` until `CLOUDFLARE_API_TOKEN` is rotated with Pages:Edit permission, so the bundle cannot be refreshed yet |
+| Frontend (Cloudflare Pages, canonical) | https://supportdesk-cta.pages.dev | Serving (200); deployed bundle calls `supportdesk-api-kh02.onrender.com`; CORS preflight from this origin → 200 |
+| Frontend (legacy, stale) | https://supportdesk-aht.pages.dev | Served from an older Cloudflare account that this repo no longer deploys to; its bundle still calls the suspended `zpkv` backend. Do not demo this URL |
 | API (Render, canonical) | https://supportdesk-api-kh02.onrender.com | `GET /api/health` → 200, `/openapi.json` → 200, unauthenticated `/api/tickets` → 401; CORS preflight from the Pages origin → 200 |
 | Older Render instance | `supportdesk-api-zpkv.onrender.com` | **Suspended** — never referenced by workflows, docs or the Pages build |
 
 Owner actions still required (dashboards — the code side is ready):
 
-- Cloudflare → create a new API token with *Account → Cloudflare Pages → Edit*,
-  update the GitHub secret `CLOUDFLARE_API_TOKEN` (and local `.env`), then re-run
-  CD so Pages is rebuilt with `VITE_API_URL=https://supportdesk-api-kh02.onrender.com`.
-  (The Render `CORS_ORIGINS` item is done: preflight from the Pages origin returns 200.)
+None for the frontend/backend chain: CD is green (Cloudflare token rotated,
+project `supportdesk`), the bundle calls `kh02`, and `CORS_ORIGINS` on `kh02`
+allows both Pages origins.
 - Verified CV claims live in [`docs/CV_EVIDENCE.md`](docs/CV_EVIDENCE.md): the
   eval dataset is **92 records** (not "100+"); no "30% misclassification
   reduction" claim is made.
