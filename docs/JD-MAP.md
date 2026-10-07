@@ -90,11 +90,11 @@ AI_PROVIDER=stub python evaluation/eval_suite.py --check
 | JD requirement | Status | Evidence |
 |---|---|---|
 | REST APIs | **Verified** | `backend/app/api/` — auth, tickets, ai, metrics, dashboard, webhooks |
-| PostgreSQL | **Verified** | `DATABASE_URL` in prod, 6 Alembic migrations, optimistic concurrency on ticket status |
+| PostgreSQL | **Verified** | `DATABASE_URL` in prod, 7 Alembic migrations, optimistic concurrency on ticket status |
 | Async I/O | **Partial** | `fetch` with `AbortSignal` in the gateway, async throughout the TypeScript service. On the Python side the AI layer uses sync `httpx` calls; Temporal activities are `@activity.defn`-decorated sync callables executed via `run_stage()` locally (Temporal path EXPERIMENTAL, no live-cluster run) — see section 2 |
 | Redis | **Not implemented** | Rate limiting is in-process (`app/rate_limit.py`) — per-instance, and therefore under-counts behind multiple workers |
 | Message queues | **Partial** | Kafka carries outbox events (`kafka_producer.py` + `outbox_publisher` worker, in-memory fallback offline); Temporal's task queue is defined but EXPERIMENTAL (no live run); no RabbitMQ/SQS |
-| Testing depth | **Verified** | 361 backend tests passed + 1 skipped, 56 gateway tests, 15 frontend tests |
+| Testing depth | **Verified** | 368 backend tests passed + 1 skipped, 56 gateway tests, 15 frontend tests |
 
 ## 7. Stack named in the JD
 
@@ -135,7 +135,7 @@ AI_PROVIDER=stub python evaluation/eval_suite.py --check
 
 Run in this repository; the commands are at the top of this file.
 
-- **Backend suite**: 361 tests passed + 1 skipped, all offline (`AI_PROVIDER=stub`,
+- **Backend suite**: 368 tests passed + 1 skipped, all offline (`AI_PROVIDER=stub`,
   no API key, no external services).
 - **Gateway**: 56 Vitest tests; `tsc --noEmit` clean under `strict`,
   `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`.

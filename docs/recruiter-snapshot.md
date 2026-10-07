@@ -45,7 +45,7 @@ a refund on its own authority.
 
 ## Numbers
 
-361 backend tests (1 skipped) · 56 gateway tests · 15 frontend tests · 6 Alembic migrations ·
+368 backend tests (1 skipped) · 56 gateway tests · 15 frontend tests · 7 Alembic migrations ·
 all offline, no API key.
 
 ## Caveats, stated plainly

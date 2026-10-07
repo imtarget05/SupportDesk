@@ -26,21 +26,20 @@ latency tracing, and an evaluation harness wired into CI as a regression gate.
 > each job requirement to the code that satisfies it — including the parts that
 > are **not** implemented.
 
-## 🚦 Production status (audited 2026-10-06)
+## 🚦 Production status (re-audited 2026-10-07)
 
 | Component | URL | State |
 |---|---|---|
-| Frontend (Cloudflare Pages) | https://supportdesk-aht.pages.dev | Serving; API origin is baked at build time (`VITE_API_URL`) |
-| API (Render, canonical) | https://supportdesk-api-kh02.onrender.com | `GET /api/health` → 200; business routes behind JWT |
+| Frontend (Cloudflare Pages) | https://supportdesk-aht.pages.dev | Serving (200), but the **currently deployed bundle still points at the suspended `zpkv` backend**. CD builds with the canonical `kh02` origin; the Pages deploy step fails with Cloudflare `Authentication error [code: 10000]` until `CLOUDFLARE_API_TOKEN` is rotated with Pages:Edit permission, so the bundle cannot be refreshed yet |
+| API (Render, canonical) | https://supportdesk-api-kh02.onrender.com | `GET /api/health` → 200, `/openapi.json` → 200, unauthenticated `/api/tickets` → 401; CORS preflight from the Pages origin → 200 |
 | Older Render instance | `supportdesk-api-zpkv.onrender.com` | **Suspended** — never referenced by workflows, docs or the Pages build |
 
 Owner actions still required (dashboards — the code side is ready):
 
-- Render → service `supportdesk-api-kh02` → set `CORS_ORIGINS=https://supportdesk-aht.pages.dev`
-  (browser preflight fails until then, even though `/api/health` answers curl).
-- GitHub → verify the `RENDER_SERVICE_ID` secret targets the **kh02** service
-  (not the suspended instance), then re-run CD so Pages is rebuilt with
-  `VITE_API_URL=https://supportdesk-api-kh02.onrender.com`.
+- Cloudflare → create a new API token with *Account → Cloudflare Pages → Edit*,
+  update the GitHub secret `CLOUDFLARE_API_TOKEN` (and local `.env`), then re-run
+  CD so Pages is rebuilt with `VITE_API_URL=https://supportdesk-api-kh02.onrender.com`.
+  (The Render `CORS_ORIGINS` item is done: preflight from the Pages origin returns 200.)
 - Verified CV claims live in [`docs/CV_EVIDENCE.md`](docs/CV_EVIDENCE.md): the
   eval dataset is **92 records** (not "100+"); no "30% misclassification
   reduction" claim is made.
@@ -264,7 +263,7 @@ the gateway's own `/healthz` and `/readyz`.
 ## 🧪 Testing & Evaluation
 
 ```bash
-cd backend  && .venv/bin/python -m pytest -q            # 361 tests + 1 skip, offline
+cd backend  && .venv/bin/python -m pytest -q            # 368 tests + 1 skip, offline
 cd gateway && npm ci && npm run typecheck && npm test   # 56 tests, strict TS
 cd frontend && npm ci && npm test                      # 15 tests
 ```
