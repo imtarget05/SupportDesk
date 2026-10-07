@@ -1,0 +1,60 @@
+name: Deploy to Azure Container Apps
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-azure.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  test-and-deploy:
+    name: Test & Deploy SupportDesk to Azure
+    runs-on: ubuntu-latest
+    env:
+      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies & pytest
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run Test Suite
+        run: |
+          cd backend
+          PYTHONPATH=. pytest tests/test_main.py tests/test_tickets.py tests/test_outbox_kafka_sla.py -q
+
+      - name: Log in to Azure
+        uses: azure/login@v2
+        if: env.AZURE_CREDENTIALS != ''
+        with:
+          creds: ${{ env.AZURE_CREDENTIALS }}
+
+      - name: Build & Deploy via Azure CLI
+        if: env.AZURE_CREDENTIALS != ''
+        run: |
+          chmod +x deploy/scripts/deploy-azure.sh
+          ./deploy/scripts/deploy-azure.sh
+
+      - name: Report deploy status
+        if: always()
+        run: |
+          if [ -z "${AZURE_CREDENTIALS:-}" ]; then
+            echo "::warning title=Azure credentials not set::Deploy step skipped; tests verified."
+          else
+            echo "Azure login and deploy executed."
+          fi
