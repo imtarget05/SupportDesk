@@ -49,6 +49,10 @@ spec:
               key: JWT_SECRET
         - name: KAFKA_BOOTSTRAP_SERVERS
           value: "supportdesk-kafka:9092"
+        # Kind cluster has no IPv6 route but Neon hostnames resolve AAAA records;
+        # this pins psycopg to IPv4 via hostaddr. Render/prod unaffected (off there).
+        - name: DB_PREFER_IPV4
+          value: "true"
         - name: AI_PROVIDER
           value: "stub"
         - name: AI_EMBED_PROVIDER

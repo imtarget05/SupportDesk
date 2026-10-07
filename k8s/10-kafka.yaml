@@ -28,6 +28,11 @@ spec:
           value: "1"
         - name: KAFKA_PROCESS_ROLES
           value: "broker,controller"
+        # Heap kept below the memory limit (1Gi) so off-heap buffers, KRaft
+        # controller state and the OS page cache still fit — 512Mi with the
+        # default heap previously OOMKilled the broker every few minutes.
+        - name: KAFKA_HEAP_OPTS
+          value: "-Xms512M -Xmx768M"
         - name: KAFKA_LISTENERS
           value: "PLAINTEXT://:9092,CONTROLLER://:9093"
         - name: KAFKA_ADVERTISED_LISTENERS
@@ -51,10 +56,10 @@ spec:
         resources:
           requests:
             cpu: "100m"
-            memory: "256Mi"
+            memory: "512Mi"
           limits:
             cpu: "500m"
-            memory: "512Mi"
+            memory: "1Gi"
 ---
 apiVersion: v1
 kind: Service

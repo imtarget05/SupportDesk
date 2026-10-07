@@ -37,6 +37,9 @@ spec:
               key: SUPPORTDESK_DATABASE_URL
         - name: KAFKA_BOOTSTRAP_SERVERS
           value: "supportdesk-kafka:9092"
+        # Same IPv4 pinning as the API pods — workers dial Neon directly too.
+        - name: DB_PREFER_IPV4
+          value: "true"
         resources:
           requests:
             cpu: "50m"
@@ -88,6 +91,9 @@ spec:
               key: SUPPORTDESK_DATABASE_URL
         - name: KAFKA_BOOTSTRAP_SERVERS
           value: "supportdesk-kafka:9092"
+        # Same IPv4 pinning as the API pods — workers dial Neon directly too.
+        - name: DB_PREFER_IPV4
+          value: "true"
         resources:
           requests:
             cpu: "50m"

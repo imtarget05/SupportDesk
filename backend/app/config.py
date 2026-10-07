@@ -81,6 +81,11 @@ class Settings:
     ai_provider: str = os.getenv("AI_PROVIDER", "stub")
     ai_model: str = os.getenv("AI_MODEL", "gpt-4o-mini")
 
+    # Pin Postgres connections to IPv4 (appends hostaddr=<ipv4> to the DSN).
+    # For networks without IPv6 routing (e.g. kind) where the DB hostname has
+    # AAAA records. Off by default — Render/Neon and tests are unaffected.
+    db_prefer_ipv4: bool = _as_bool(os.getenv("DB_PREFER_IPV4"), default=False)
+
     # Guardrail on unsafe LLM output: "reject" (return 502, keep ticket) default,
     # or "fallback" (return a neutral draft instead of the blocked one).
     ai_guardrail_mode: str = os.getenv("AI_GUARDRAIL_MODE", "reject")
