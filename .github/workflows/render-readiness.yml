@@ -1,0 +1,67 @@
+name: Reusable — Render readiness poll
+
+# Shared poll loop (Phase 2): resolves the Render service URL via API, then
+# polls {url}{health-path} until HTTP 200. Fails loudly on missing secrets.
+# Callers: SmartDoc cd.yml verify-readiness, SupportDesk deploy.yml health
+# poll. NOTE: cross-repo `uses:` is not possible here (3 separate repos), so
+# this file is the canonical copy — sync it into each repo when changed.
+
+on:
+  workflow_call:
+    inputs:
+      health-path:
+        description: "Health path appended to the Render service URL"
+        required: false
+        default: "/api/health"
+        type: string
+      attempts:
+        description: "Poll attempts"
+        required: false
+        default: "10"
+        type: string
+      interval-seconds:
+        description: "Seconds between attempts"
+        required: false
+        default: "15"
+        type: string
+    secrets:
+      render-api-key:
+        required: true
+      render-service-id:
+        required: true
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Poll Render service readiness
+        env:
+          RENDER_API_KEY: ${{ secrets.render-api-key }}
+          RENDER_SERVICE_ID: ${{ secrets.render-service-id }}
+          HEALTH_PATH: ${{ inputs.health-path }}
+          ATTEMPTS: ${{ inputs.attempts }}
+          INTERVAL: ${{ inputs.interval-seconds }}
+        run: |
+          if [ -z "$RENDER_API_KEY" ] || [ -z "$RENDER_SERVICE_ID" ]; then
+            echo "::error::RENDER_API_KEY / RENDER_SERVICE_ID secrets are not configured. Readiness cannot be verified — failing loudly instead of skipping."
+            exit 1
+          fi
+          HOST=$(curl -s -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}" \
+            | jq -r '.serviceDetails.url // empty')
+          if [ -z "$HOST" ]; then
+            echo "::error::Could not resolve service URL from Render API"
+            exit 1
+          fi
+          echo "Polling ${HOST}${HEALTH_PATH} (${ATTEMPTS}x${INTERVAL}s) ..."
+          for i in $(seq 1 "$ATTEMPTS"); do
+            CODE=$(curl -s -o /tmp/health.json -w '%{http_code}' --max-time 15 "${HOST}${HEALTH_PATH}" || echo 000)
+            if [ "$CODE" = "200" ]; then
+              echo "Healthy: $(cat /tmp/health.json)"
+              exit 0
+            fi
+            echo "Attempt $i/${ATTEMPTS} — HTTP $CODE"
+            sleep "$INTERVAL"
+          done
+          echo "::error::${HOST}${HEALTH_PATH} did not return 200 within polling window"
+          exit 1

@@ -1,5 +1,7 @@
 # ADR-001: Why Azure Container Apps over AKS for Production Compute
 
+> Canonical pack: `docs/adr/` at repo root (shared TMA ADR pack, Phase 1A + 3A). Edit the pack first, then sync here. Project deltas go in an addendum, never silent edits.
+
 ## Status
 Accepted
 

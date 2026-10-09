@@ -1,5 +1,7 @@
 # ADR-002: Why Azure Service Bus over Apache Kafka for ITSM Domain Messaging
 
+> Canonical pack: `docs/adr/` at repo root (shared TMA ADR pack, Phase 1A + 3A). Edit the pack first, then sync here. Project deltas go in an addendum, never silent edits.
+
 ## Status
 Accepted
 

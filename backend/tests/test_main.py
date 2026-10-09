@@ -43,3 +43,24 @@ def test_app_title_and_version(client):
     response = client.get("/")
     assert response.status_code == 200
     assert response.json()["title"] == "SupportDesk API"
+
+
+def test_render_cors_origin_is_the_canonical_pages_origin():
+    from pathlib import Path
+
+    blueprint = Path(__file__).resolve().parents[2] / "render.yaml"
+    content = blueprint.read_text(encoding="utf-8")
+
+    assert "value: https://supportdesk-cta.pages.dev" in content
+    assert "value: https://supportdesk-aht.pages.dev" not in content
+
+
+def test_pages_deploy_and_smoke_target_the_canonical_project():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    workflow = (root / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+    smoke = (root / "scripts/smoke-production.sh").read_text(encoding="utf-8")
+
+    assert "|| 'supportdesk'" in workflow
+    assert "${1:-https://supportdesk-cta.pages.dev}" in smoke

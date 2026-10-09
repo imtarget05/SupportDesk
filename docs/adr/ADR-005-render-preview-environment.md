@@ -1,5 +1,7 @@
 # ADR-005: Positioning Render as an Ephemeral Preview & Recruiter Demo Plane
 
+> Canonical pack: `docs/adr/` at repo root (shared TMA ADR pack, Phase 1A + 3A). Edit the pack first, then sync here. Project deltas go in an addendum, never silent edits.
+
 ## Status
 Accepted
 

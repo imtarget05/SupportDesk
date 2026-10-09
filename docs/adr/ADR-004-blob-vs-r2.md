@@ -1,5 +1,7 @@
 # ADR-004: Enterprise Data Sovereignty & Object Storage — Azure Blob Storage vs Cloudflare R2
 
+> Canonical pack: `docs/adr/` at repo root (shared TMA ADR pack, Phase 1A + 3A). Edit the pack first, then sync here. Project deltas go in an addendum, never silent edits.
+
 ## Status
 Accepted
 

@@ -4,7 +4,7 @@
 # exported (dedicated demo account; creates SMOKE- prefixed tickets).
 # Usage: ./scripts/smoke-production.sh [pages_url] [api_url]
 set -u
-PAGES_URL="${1:-https://supportdesk-aht.pages.dev}"
+PAGES_URL="${1:-https://supportdesk-cta.pages.dev}"
 API_URL="${2:-https://supportdesk-api-kh02.onrender.com}"
 ORIGIN="${PAGES_URL%/}"
 PASS=0; FAIL=0
@@ -21,7 +21,12 @@ echo
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$ORIGIN/" || echo 000)
 [ "$code" = "200" ]; chk "frontend reachable (Pages)" $? "($code)"
 
-body=$(curl -s --max-time 60 "$API_URL/api/health" || true)
+body=""
+for attempt in 1 2 3; do
+  body=$(curl -s --max-time 60 "$API_URL/api/health" || true)
+  if echo "$body" | grep -q '"status"'; then break; fi
+  if [ "$attempt" -lt 3 ]; then sleep 5; fi
+done
 echo "$body" | grep -q '"status"'; chk "backend /api/health" $? "(${body:-no body})"
 
 acao=$(curl -s -D - -o /dev/null --max-time 30 -X OPTIONS "$API_URL/api/auth/login" \

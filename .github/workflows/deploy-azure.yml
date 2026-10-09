@@ -54,7 +54,8 @@ jobs:
         if: always()
         run: |
           if [ -z "${AZURE_CREDENTIALS:-}" ]; then
-            echo "::warning title=Azure credentials not set::Deploy step skipped; tests verified."
+            echo "::error title=Azure deploy NOT run::AZURE_CREDENTIALS is not configured; deploy steps were skipped. This run verified the test subset only and is a FAILED deploy." >&2
+            exit 1
           else
             echo "Azure login and deploy executed."
           fi

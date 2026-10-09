@@ -40,7 +40,7 @@
 | `ALEMBIC_MIGRATE` | `true` — idempotent `upgrade head` at boot. |
 | `AI_PROVIDER` / `AI_EMBED_PROVIDER` | `cloudflare` / `bow` — real LLM `@cf/meta/llama-3.1-8b-instruct` via Workers AI. Needs `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` (token must have **Workers AI → Run**; verify with `ai/run` → 200). A draft that fails the safety guardrail (e.g. promises a refund) returns **502 by design** — retry produces a fresh draft. `AI_EMBED_PROVIDER` currently accepts only `bow` in practice: the similar-ticket embedder always uses the deterministic 128-dim hashed bag-of-words `embed()`, so `hf` does not change persisted vectors. |
 | `BOOTSTRAP_TOKEN` | Random ≥8 chars, set **before first deploy**; blank after bootstrap (§4). |
-| `CORS_ORIGINS` | Set AFTER Pages deploy: `https://<app>.pages.dev`, then redeploy API. |
+| `CORS_ORIGINS` | Canonical origin `https://supportdesk-cta.pages.dev`, configured in `render.yaml`. |
 | `TICKET_CREATE_RATE_LIMIT` / `TICKET_CREATE_RATE_WINDOW_S` | Guest (unauthenticated) `POST /api/tickets` allowance, default `10` per `3600`s, keyed on the real client IP. Returned as `429` + `Retry-After`. `0` disables. Authenticated submitters are not charged. |
 
 ## 3. Verify API health + migrate
@@ -80,7 +80,7 @@ curl -X POST https://<api>.onrender.com/api/auth/bootstrap \
 
 ## 6. Wire CORS and redeploy API
 
-1. Render → **canonical service `supportdesk-api-kh02`** → Environment → set `CORS_ORIGINS=https://supportdesk-cta.pages.dev` → Save (triggers redeploy). Without this, browser preflight from Pages fails with `400 Disallowed CORS origin` even though `/api/health` returns 200 to curl.
+1. Confirm the canonical `supportdesk-api-kh02` service has synced `CORS_ORIGINS=https://supportdesk-cta.pages.dev` from `render.yaml`. The legacy `aht` origin is intentionally excluded.
 2. Render terminates HTTPS at the boundary; no extra proxy config needed.
 
 ## 7. Prod smoke test (real user flow)

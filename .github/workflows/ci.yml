@@ -112,3 +112,16 @@ jobs:
         run: |
           cd frontend
           npm test --if-present
+
+  gitleaks:
+    # Secret scanning — HARD GATE (default config). Fails the build on leaks.
+    # Ported from CreditFlow/SmartDoc (Phase 3 parity): the inline grep step
+    # in `backend` stays as a fast local signal, but gitleaks is authoritative.
+    name: Secret scanning (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2

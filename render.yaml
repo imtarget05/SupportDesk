@@ -1,13 +1,13 @@
 # SupportDesk — Render Blueprint: API (Docker) + Managed Postgres.
 # Deploy: Render dashboard -> New -> Blueprint -> select this repo.
 # Secrets: JWT_SECRET is auto-generated; DATABASE_URL injected from the db.
-# CORS_ORIGINS must be set manually to the Cloudflare Pages URL after Pages deploy.
+# CORS_ORIGINS is pinned to the canonical Cloudflare Pages origin below.
 #
 # CANONICAL PRODUCTION BACKEND: https://supportdesk-api-kh02.onrender.com
 #   The older supportdesk-api-zpkv.onrender.com instance is SUSPENDED and must
 #   never be referenced in workflows, frontend build env, smoke tests or docs.
 # CORS_ORIGINS value for the live service:
-#   https://supportdesk-aht.pages.dev  (must equal the Pages origin exactly)
+#   https://supportdesk-cta.pages.dev  (must equal the canonical Pages origin)
 services:
   - type: web
     name: supportdesk-api
@@ -33,8 +33,7 @@ services:
       - key: START_BACKGROUND_WORKERS
         value: "true"
       - key: CORS_ORIGINS
-        value: https://supportdesk-aht.pages.dev
-        sync: false
+        value: https://supportdesk-cta.pages.dev
 databases:
   - name: supportdesk-db
     databaseName: supportdesk

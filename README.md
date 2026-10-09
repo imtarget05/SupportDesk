@@ -18,9 +18,11 @@ read-only tools, and drafts replies — and never sends anything, changes ticket
 state, or promises a refund on its own authority.
 
 What makes this more than a chatbot with a ticket table is the engineering
-*around* the model: durable workflows that survive a restart and wait for a
-human approval, deterministic guardrails that fail closed, per-call cost and
-latency tracing, and an evaluation harness wired into CI as a regression gate.
+*around* the model: guardrails that fail closed, per-call cost and latency
+tracing, an evaluation harness wired into CI as a regression gate, and a
+workflow layer with a human-approval gate — run today by an explicitly
+non-durable in-process runner, with the Temporal path shipped but not yet
+verified on a live cluster.
 
 > Applying for an AI engineering role? [`docs/JD-MAP.md`](docs/JD-MAP.md) maps
 > each job requirement to the code that satisfies it — including the parts that
@@ -31,15 +33,14 @@ latency tracing, and an evaluation harness wired into CI as a regression gate.
 | Component | URL | State |
 |---|---|---|
 | Frontend (Cloudflare Pages, canonical) | https://supportdesk-cta.pages.dev | Serving (200); deployed bundle calls `supportdesk-api-kh02.onrender.com`; CORS preflight from this origin → 200 |
-| Frontend (legacy, stale) | https://supportdesk-aht.pages.dev | Served from an older Cloudflare account that this repo no longer deploys to; its bundle still calls the suspended `zpkv` backend. Do not demo this URL |
+| Frontend (legacy, stale) | https://supportdesk-aht.pages.dev | Served from an older Cloudflare account; excluded from CORS and no longer deployed by this repo. Do not demo this URL |
 | API (Render, canonical) | https://supportdesk-api-kh02.onrender.com | `GET /api/health` → 200, `/openapi.json` → 200, unauthenticated `/api/tickets` → 401; CORS preflight from the Pages origin → 200 |
 | Older Render instance | `supportdesk-api-zpkv.onrender.com` | **Suspended** — never referenced by workflows, docs or the Pages build |
 
-Owner actions still required (dashboards — the code side is ready):
-
-None for the frontend/backend chain: CD is green (Cloudflare token rotated,
-project `supportdesk`), the bundle calls `kh02`, and `CORS_ORIGINS` on `kh02`
-allows both Pages origins.
+Owner action still required: sync the updated blueprint to the canonical
+`supportdesk-api-kh02` Render service and rerun `scripts/smoke-production.sh`
+to verify that CORS now allows only `https://supportdesk-cta.pages.dev`. The
+legacy `aht` origin is intentionally excluded from the repository blueprint.
 - Verified CV claims live in [`docs/CV_EVIDENCE.md`](docs/CV_EVIDENCE.md): the
   eval dataset is **92 records** (not "100+"); no "30% misclassification
   reduction" claim is made.
@@ -70,16 +71,16 @@ rather than sent to a customer. A violation returns `502` and leaves the ticket
 untouched.
 
 **4. Long-running AI work loses state.**
-The ticket pipeline is written as a Temporal workflow: classify → retrieve →
-draft → **suspend for human approval** → send. The gate is a real
+The ticket pipeline is defined as a Temporal workflow: classify → retrieve →
+draft → **suspend for human approval** → send. The gate is modeled as a real
 `wait_condition` resumed by a signal, so the design is durability-first rather
 than "hold a worker and hope".
 
-To be precise about its current state: the definition, signals and query are
-tested, but a Temporal worker cannot yet start (its activities need
-`@activity.defn`, and the workflow body is not sandbox-safe). What runs today is
-the in-process runner, which is explicitly not durable. `docs/interview-qa.md`
-has the evidence.
+To be precise about its current state: what runs today is the in-process
+runner, which is explicitly not durable. The Temporal worker and workflow
+definitions are present in the repo, but they have not been verified against a
+live Temporal cluster — the default configuration runs with
+`TEMPORAL_ENABLED=False`. `docs/interview-qa.md` has the evidence.
 
 ---
 
@@ -131,6 +132,11 @@ any request — including an AI call — reaches the Python service. Only
 - **Consumer Idempotency & DLQ**: Background consumers (`app.workers.notification_worker`) check `processed_events` before execution, ensuring exactly-once delivery; failed events route to `ticket-events-retry` and terminate at `ticket-events-dlq` after 3 failed attempts.
 - **Priority-based SLA Engine**: Target calculation (Urgent 1h/4h, High 4h/8h, Normal 8h/24h, Low 24h/48h), proactive 80% warning alerts, breach auto-escalation, and live database metrics exposed at `GET /api/sla/metrics`.
 
+> Honesty note: the outbox, consumer-idempotency and SLA code above really
+> exists and is covered by unit tests, but tests run against an in-memory
+> Kafka fallback, and this stack has not been verified in a production
+> deployment.
+
 **Providers**: Anthropic (Claude), OpenAI-compatible, Cloudflare Workers AI, and a deterministic offline stub. The entire test suite runs with no API key.
 
 
@@ -138,7 +144,7 @@ any request — including an AI call — reaches the Python service. Only
 
 ## Tech Stack
 
-**Backend (Python)** — FastAPI, SQLAlchemy 2, Alembic (6 migrations), Pydantic; LangGraph (checkpointed state graph), Temporal (durable workflows); LlamaIndex + Qdrant (RAG), sentence-transformers/MiniLM, scikit-learn; OpenTelemetry SDK; MCP SDK.
+**Backend (Python)** — FastAPI, SQLAlchemy 2, Alembic (6 migrations), Pydantic; LangGraph (checkpointed state graph), Temporal (workflow definitions; worker not yet verified on a live cluster, `TEMPORAL_ENABLED=False` by default); LlamaIndex + Qdrant (RAG), sentence-transformers/MiniLM, scikit-learn; OpenTelemetry SDK; MCP SDK.
 
 **Gateway (TypeScript)** — Fastify 5, `jose` for JWT verification, Zod for config validation; `tsc` under `strict` + `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes`.
 
@@ -197,7 +203,7 @@ the gateway's own `/healthz` and `/readyz`.
 | `POST` | `/api/tickets/{id}/ai/suggest` | Draft a reply (never sends it) |
 | `POST` | `/api/tickets/{id}/ai/agent` | Run the tool-calling agent loop; returns the draft and the tool calls |
 | `POST` | `/api/tickets/{id}/ai/workflow` | LangGraph pipeline with checkpointed approval gate |
-| `POST` | `/api/tickets/{id}/ai/workflow/run` | Start the durable Temporal-style workflow run |
+| `POST` | `/api/tickets/{id}/ai/workflow/run` | Start a workflow run (in-process runner; not durable) |
 | `GET` | `/api/tickets/{id}/ai/workflow/{wid}` | Workflow run state, including whether it awaits approval |
 | `POST` | `/api/tickets/{id}/ai/workflow/{wid}/decision` | Approve or reject a suspended run |
 | `GET` | `/api/tickets/{id}/similar` | Similar resolved tickets with similarity scores |
@@ -220,7 +226,7 @@ the gateway's own `/healthz` and `/readyz`.
 - **AI output is untrusted.** Deterministic guardrails reject refund/compensation commitments, facts absent from the thread, prompt-injection echo, and internal detail (a tool error echoed into a draft). `AI_GUARDRAIL_MODE=reject` returns `502` and leaves the ticket untouched; `fallback` substitutes a neutral draft. Tool calls are audited, and all tools are read-only.
 - **Token storage tradeoff (known limitation).** The SPA keeps the JWT in `localStorage` (`frontend/src/lib/api.ts`) — this is *not* presented as best-practice production auth. An HttpOnly-cookie + CSRF architecture would be strictly better, but migrating would require coordinated backend/gateway/frontend changes with a high regression risk before the current milestone, so it stays as a documented tradeoff: XSS mitigations in place are React's default output escaping (no `dangerouslySetInnerHTML` in app code), short token expiry, and backend re-authorization on every request so a stolen token's blast radius is bounded by role checks. Do not claim "secure cookie auth" for this project.
 - **Assignment and audit are durable.** `POST /api/tickets/{id}/assign` persists `assignee_id` (agent-only target, enforced in `ticket_service.assign_ticket`) and writes a `ticket.assign` row to `audit_events`; the automation endpoint executes synchronously (see its docstring) rather than pretending to queue durable jobs.
-- **Not implemented, deliberately.** No PII redaction, no SLA engine, no multi-tenancy, no fine-grained RBAC beyond customer/agent. `docs/spec.md` records these as out of scope.
+- **Not implemented, deliberately.** No PII redaction, no multi-tenancy, no fine-grained RBAC beyond customer/agent. `docs/spec.md` records these as out of scope. Separately, two features exist in code but are not verified for production: the SLA/outbox stack (not validated against real Kafka + a live deployment) and the Temporal worker (shipped, not yet verified on a live cluster; the default config runs with `TEMPORAL_ENABLED=False` on the non-durable in-process runner).
 
 ---
 
