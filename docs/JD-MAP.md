@@ -92,7 +92,7 @@ AI_PROVIDER=stub python evaluation/eval_suite.py --check
 | REST APIs | **Verified** | `backend/app/api/` — auth, tickets, ai, metrics, dashboard, webhooks |
 | PostgreSQL | **Verified** | `DATABASE_URL` in prod, 7 Alembic migrations, optimistic concurrency on ticket status |
 | Async I/O | **Partial** | `fetch` with `AbortSignal` in the gateway, async throughout the TypeScript service. On the Python side the AI layer uses sync `httpx` calls; Temporal activities are `@activity.defn`-decorated sync callables executed via `run_stage()` locally (Temporal path EXPERIMENTAL, no live-cluster run) — see section 2 |
-| Redis | **Not implemented** | Rate limiting is in-process (`app/rate_limit.py`) — per-instance, and therefore under-counts behind multiple workers |
+| Redis | **Verified** | `app/rate_limit.py` — Redis-backed shared rate limiter when `REDIS_URL` is set (sliding window over a sorted set); falls back to the in-process deque when it is not. The fallback stays per-instance, so a multi-worker deployment should set `REDIS_URL` |
 | Message queues | **Partial** | Kafka carries outbox events (`kafka_producer.py` + `outbox_publisher` worker, in-memory fallback offline); Temporal's task queue is defined but EXPERIMENTAL (no live run); no RabbitMQ/SQS |
 | Testing depth | **Verified** | 368 backend tests passed + 1 skipped, 56 gateway tests, 15 frontend tests |
 
@@ -155,10 +155,12 @@ explains how to answer that question directly rather than deflecting.
 These are real. Each is a scope decision or an unfinished item, and none is
 disguised by the code.
 
-1. **Redis is not used.** Rate limiting is in-process, so it is per-instance and
-   under-counts behind more than one worker. The per-IP limit on guest
-   submissions is the one that matters, and it would need Redis or an equivalent
-   shared store.
+1. **Redis is optional, not load-bearing.** `app/rate_limit.py` uses a
+   Redis sorted-set sliding window — shared by every instance and worker — when
+   `REDIS_URL` is set, and falls back to the in-process deque when it is not
+   (package missing, URL unset, or server unreachable). The in-process fallback
+   is per-instance, so a multi-worker deployment must set `REDIS_URL` to keep
+   the per-IP limit on guest submissions counting every instance.
 2. **The Temporal runtime path does not run.** The workflow definition, its
    signals, its query and the in-process runner are real and tested. But a
    Temporal worker cannot start: the activities are not decorated with

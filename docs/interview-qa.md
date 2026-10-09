@@ -930,9 +930,11 @@ tagging, output validation — are what actually bound the risk.
 
 Stating these is not weakness; claiming something false and being caught is.
 
-- **Redis is not used.** Rate limiting is in-process, so it is per-instance and
-  under-counts behind more than one worker. The per-IP limit on guest submissions
-  is the one that matters and it would need a shared store.
+- **Redis is optional, not required.** Rate limiting is Redis-backed when
+  `REDIS_URL` is set — a shared sliding window across instances and workers —
+  and falls back to the in-process deque otherwise. The in-process fallback is
+  per-instance, so without `REDIS_URL` it under-counts behind more than one
+  worker, which is what keeps the per-IP limit on guest submissions honest.
 - **Temporal does not run.** The workflow definition, signals, query, shared
   pipeline and local runner are implemented and tested. The Temporal worker
   cannot start — missing `@activity.defn`, and a workflow body that is not
@@ -1170,8 +1172,9 @@ Not a script. Have the order; the details come from the sections above.
    four-metric eval and its regression gate.
 7. **Bug story** — pick one. The gateway auth bypass is the strongest: a live
    security defect found by a single line of test.
-8. **Trade-off and limitation** — Temporal does not run; Redis is not used;
-   nothing is production-proven.
+8. **Trade-off and limitation** — Temporal does not run; Redis is opt-in
+   (shared limiter when `REDIS_URL` is set, in-process fallback); nothing is
+   production-proven.
 
 If they ask "what would you do next", the answer is item 4 — and it is the same
 answer whether or not they press on it.

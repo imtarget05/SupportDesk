@@ -111,21 +111,24 @@ class TemporalWorkflowClient:
 
 async def run_worker() -> None:
     """Run a Temporal worker serving the ticket workflow until interrupted."""
+    from concurrent.futures import ThreadPoolExecutor
     from temporalio.worker import Worker
 
     client = await connect_client()
     pipeline = Pipeline()
-    worker = Worker(
-        client,
-        task_queue=settings.temporal_task_queue,
-        workflows=[TicketProcessingWorkflow],
-        activities=[activity_classify, activity_retrieve, activity_draft],
-    )
-    logger.info("Temporal worker started on task queue %s", settings.temporal_task_queue)
-    try:
-        await worker.run()
-    finally:
-        await client.close()
+    with ThreadPoolExecutor(max_workers=10) as activity_pool:
+        worker = Worker(
+            client,
+            task_queue=settings.temporal_task_queue,
+            workflows=[TicketProcessingWorkflow],
+            activities=[activity_classify, activity_retrieve, activity_draft],
+            activity_executor=activity_pool,
+        )
+        logger.info("Temporal worker started on task queue %s", settings.temporal_task_queue)
+        try:
+            await worker.run()
+        finally:
+            await client.close()
 
 
 if __name__ == "__main__":  # pragma: no cover — process entry point

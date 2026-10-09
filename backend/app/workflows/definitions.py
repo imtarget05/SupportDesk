@@ -26,8 +26,6 @@ from typing import TYPE_CHECKING, Any
 
 from temporalio import activity, workflow
 
-from app.config import settings
-
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from app.workflows.pipeline import Pipeline
 
@@ -35,12 +33,10 @@ logger = logging.getLogger(__name__)
 
 
 def stage_timeout_seconds() -> int:
-    """Activity timeout in seconds, read from settings at call time.
-
-    Defined here (rather than imported from `pipeline`) because the Temporal
-    workflow body runs inside the SDK sandbox, which restricts imports.
+    """Activity timeout in seconds.
+    Default 120s; avoids importing app.config inside the Temporal sandbox.
     """
-    return int(getattr(settings, "workflow_stage_timeout_s", 120) or 120)
+    return 120
 
 # Thresholds mirror graph_workflow: the workflow stops for approval when the
 # draft is high-impact, regardless of how confident the classifier was.

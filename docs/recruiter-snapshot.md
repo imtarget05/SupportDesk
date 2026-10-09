@@ -50,7 +50,8 @@ all offline, no API key.
 
 ## Caveats, stated plainly
 
-Redis is not used (rate limiting is per-instance); the Temporal runtime path
+Redis is optional (shared rate limiter when `REDIS_URL` is set, in-process
+fallback otherwise); the Temporal runtime path
 does not run; Langfuse is OTel-compatible rather than hosted; native provider
 tool calling is not wired up; there is no production traffic. Full detail,
 requirement by requirement, is in `docs/JD-MAP.md`, and the interview-ready

@@ -199,7 +199,7 @@ runner — đó là đường test suite chạy. Giới hạn local runner đư�
 | PostgreSQL | **Yes** | domain data, `ai_predictions`, `ai_call_traces`, ticket embeddings |
 | Qdrant | No | knowledge-base vector index → fallback LlamaIndex in-process |
 | Temporal | No | durable workflow → fallback in-process runner |
-| Redis | **Không dùng** | rate limit in-process (per-instance) — gap ghi tại `docs/JD-MAP.md` |
+| Redis | No | shared rate limiter khi `REDIS_URL` set (Redis-backed), fallback in-process per-instance — bảng trạng thái tại `docs/JD-MAP.md` §6 |
 | Kafka (compose) | local | outbox/SLA event stream (blueprint Render không gồm) |
 
 ## 8. Tài liệu liên quan

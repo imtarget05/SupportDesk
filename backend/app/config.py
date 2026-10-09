@@ -96,6 +96,23 @@ class Settings:
     # Embedder: "bow" (hashed bag-of-words, offline default) | "hf" (sentence-transformers, lazy-load, BoW fallback)
     ai_embed_provider: str = os.getenv("AI_EMBED_PROVIDER", "bow")
 
+    # Distributed rate limiting for guest (anonymous) submissions.
+    #   empty (default) — the limiter stays in-process: one instance, no
+    #                      extra service, and no shared counter.
+    #   REDIS_URL       — the counter lives in Redis, so every worker and
+    #                      replica behind the ingress draws on one allowance.
+    #                      This is the multi-instance case the in-process
+    #                      dict cannot cover.
+    #   UPSTASH_REDIS_URL — accepted as an alias for serverless Redis
+    #                      (Upstash names its variable that way).
+    # A Redis that is unimportable or unreachable degrades to the in-process
+    # guard instead of failing the request the limiter protects.
+    redis_url: str = os.getenv("REDIS_URL") or os.getenv("UPSTASH_REDIS_URL", "")
+    # Connect/read budget for one rate-limit round trip, in seconds. Kept small
+    # because a limiter that waits is a limiter that adds latency to the
+    # request it is guarding, and the fallback is always available.
+    redis_connect_timeout_s: float = float(os.getenv("REDIS_CONNECT_TIMEOUT_S", "0.5"))
+
     # Guest (unauthenticated) ticket submissions are rate limited per peer IP.
     # Set the limit to 0 to disable. Authenticated submitters are not counted:
     # they are already attributable to an account.

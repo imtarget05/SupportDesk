@@ -125,3 +125,20 @@ jobs:
           fetch-depth: 0
       - name: Run gitleaks
         uses: gitleaks/gitleaks-action@v2
+
+  trivy:
+    # Vulnerability scanning — blocking gate (CRITICAL,HIGH, ignore-unfixed).
+    # Ported from SmartDoc (Phase 3/4 parity): fails the merge on actionable CVEs.
+    name: Security — Trivy vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Trivy vulnerability scanner (blocking, table output)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          format: 'table'
+          exit-code: '1'

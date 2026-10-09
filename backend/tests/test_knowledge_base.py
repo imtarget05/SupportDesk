@@ -125,3 +125,21 @@ class TestSingleton:
         reset_knowledge_base()
         kb2 = get_knowledge_base()
         assert kb1 is not kb2
+
+
+class TestRealisticSOPKnowledgeBase:
+    def test_ingest_and_retrieve_sops(self):
+        kb = KnowledgeBase()
+        count = kb.ingest(force=True)
+        # Should have ingested all real SOP docs (>= 20)
+        assert count >= 20
+
+        # Test refund retrieval
+        refund_results = kb.retrieve("How do I request a refund for an annual subscription?", top_k=3)
+        assert len(refund_results) > 0
+        assert any("refund" in r.content.lower() or "billing" in r.source.lower() for r in refund_results)
+
+        # Test 2FA retrieval
+        two_fa_results = kb.retrieve("lost authenticator app two factor recovery codes", top_k=3)
+        assert len(two_fa_results) > 0
+        assert any("factor" in r.content.lower() or "2fa" in r.content.lower() for r in two_fa_results)

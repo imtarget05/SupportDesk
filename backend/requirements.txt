@@ -42,3 +42,14 @@ joblib>=1.4
 psycopg2-binary>=2.9  # Postgres driver for prod DATABASE_URL (SQLite needs no driver)
 psycopg[binary]>=3.2
 aiokafka>=0.10.0
+
+# Optional distributed rate limiting. When REDIS_URL (or its alias
+# UPSTASH_REDIS_URL) is set, app/rate_limit.py counts guest submissions in
+# Redis so every instance and worker behind the ingress shares one allowance;
+# when it is unset the limiter stays in-process. Imported lazily, so the app
+# (and the fallback) run fine without this line installed.
+redis>=5.0.1
+
+# Test-only: fakeredis stands in for the Redis server in
+# tests/test_rate_limit_backends.py. Those tests skip if it is missing.
+fakeredis>=2.0
