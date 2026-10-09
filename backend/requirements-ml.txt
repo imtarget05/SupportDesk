@@ -1,0 +1,13 @@
+# Exploration / ML-serving extras — deliberately NOT in requirements.txt
+# (keeps the production image lean; see evaluation/README.md).
+#
+# Needed for:
+#   - evaluation/train_transformer.py     (local DistilBERT fine-tune)
+#   - AI_PROVIDER=distilbert              (backend/app/services/ai_service.py)
+#
+# Install into the backend venv:
+#   cd backend && uv pip install -r requirements-ml.txt --python .venv/bin/python
+torch>=2.4
+transformers>=4.45
+datasets>=3.0
+accelerate>=1.1

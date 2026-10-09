@@ -553,6 +553,8 @@ def get_provider() -> AnalysisProvider:
             _provider = AnthropicProvider()
         elif settings.ai_provider == "openai":
             _provider = OpenAIProvider()
+        elif settings.ai_provider == "distilbert":
+            _provider = DistilBertProvider()
         else:
             _provider = StubProvider()
     return _provider
@@ -642,3 +644,78 @@ def suggest_response(
             return guardrails.SAFE_FALLBACK_DRAFT
         raise AIProviderError(str(exc)) from exc
     return draft
+
+
+# ------------------------------------------------------- distilbert provider
+
+
+class DistilBertProvider(_UsageRecorder):
+    """Local fine-tuned DistilBERT ticket classifier.
+
+    Artifact: ``evaluation/artifacts/distilbert`` (produced by
+    ``evaluation/train_transformer.py``). Lazy-loaded so startup stays cheap
+    when another provider is configured. torch/transformers are optional
+    runtime deps — see ``backend/requirements-ml.txt``.
+    """
+
+    def __init__(self) -> None:
+        import os
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parents[3]
+        default = repo_root / "evaluation" / "artifacts" / "distilbert"
+        self._artifact = Path(os.getenv("DISTILBERT_ARTIFACT_PATH", str(default)))
+        self._tok = None
+        self._model = None
+        self._labels: list[str] = []
+
+    def _load(self) -> None:
+        if self._model is not None:
+            return
+        import json
+
+        if not (self._artifact / "config.json").exists():
+            raise AIProviderError(
+                f"DistilBERT artifact not found at {self._artifact}; "
+                "run evaluation/train_transformer.py first"
+            )
+        from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+        self._tok = AutoTokenizer.from_pretrained(self._artifact)
+        self._model = AutoModelForSequenceClassification.from_pretrained(self._artifact)
+        self._model.eval()
+        labels_path = self._artifact / "labels.json"
+        self._labels = json.loads(labels_path.read_text()) if labels_path.exists() else []
+
+    def analyze(self, subject: str, description: str) -> AnalysisResult:
+        self._load()
+        import torch
+
+        if not self._labels:
+            raise AIProviderError("DistilBERT labels.json missing from artifact")
+        text = f"{subject} {description}"
+        ids = self._tok(text, return_tensors="pt", truncation=True, padding=True)
+        with torch.no_grad():
+            logits = self._model(**ids).logits
+        probs = torch.softmax(logits, dim=-1)[0]
+        idx = int(probs.argmax())
+        confidence = round(float(probs[idx]), 2)
+        result = AnalysisResult(
+            category=TicketCategory(self._labels[idx]),
+            priority=_stub_priority(text.lower()),
+            summary=_stub_summary(subject, description),
+            confidence=confidence,
+        )
+        self.last_usage = TokenUsage.for_text(
+            ANALYZE_SYSTEM_PROMPT, f"{subject} {description} {result.summary}"
+        )
+        return result
+
+    def suggest(self, subject: str, description: str, thread: str) -> str:
+        # Drafting is still delegated to the deterministic stub — DistilBERT
+        # only does classification. Keeps the model lean and honest.
+        draft = StubProvider().suggest(subject, description, thread)
+        self.last_usage = TokenUsage.for_text(
+            SUGGEST_SYSTEM_PROMPT, f"{subject} {description} {thread} {draft}"
+        )
+        return draft
