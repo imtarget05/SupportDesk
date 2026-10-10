@@ -124,7 +124,14 @@ jobs:
         with:
           fetch-depth: 0
       - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        # v2 -> v3: v2 runs on Node 20, which GitHub-hosted runners no longer
+        # execute. GITHUB_TOKEN is mandatory since gitleaks-action v2: without
+        # it the job fails with "GITHUB_TOKEN is now required to scan pull
+        # requests" on EVERY pull request, whether or not a secret exists —
+        # which made this gate a permanent false alarm instead of a signal.
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   trivy:
     # Vulnerability scanning — blocking gate (CRITICAL,HIGH, ignore-unfixed).
