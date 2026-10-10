@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps import require_agent
 from app.services import metrics as _metrics
-from app.services import tracing
+from app.services import budget, tracing
 
 router = APIRouter(tags=["metrics"])  # prefix added by include_router in main.py
 
@@ -33,8 +33,16 @@ def get_ai_metrics(
 
     Backed by the `ai_call_traces` table rather than the in-process counters, so
     it survives a restart and can be split by model and operation.
+
+    ``budget`` reports month-to-date spend against the hard cap so an operator
+    sees the limit approaching instead of discovering it when calls return 429.
     """
-    return tracing.summarize(db)
+    summary = tracing.summarize(db)
+    try:
+        summary["budget"] = budget.budget_state(db)
+    except Exception as exc:  # noqa: BLE001 — metrics must not fail on a DB blip
+        summary["budget"] = {"error": f"{type(exc).__name__}: {exc}"}
+    return summary
 
 
 @router.get("/metrics/ai/recent")

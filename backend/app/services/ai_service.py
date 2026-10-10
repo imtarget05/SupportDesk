@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.enums import TicketCategory, TicketPriority
-from app.services import guardrails, pricing, tracing
+from app.services import budget, guardrails, pricing, tracing
 from app.services.metrics import record_call, record_error
 
 
@@ -33,6 +33,24 @@ class AIProviderError(Exception):
 
 class TransientAIProviderError(AIProviderError):
     """A transient upstream failure (timeout, 5xx, 429) safe to retry once."""
+
+
+class BudgetExceededError(AIProviderError):
+    """Month-to-date AI spend reached the cap, so the paid call was refused.
+
+    Subclasses ``AIProviderError`` on purpose: every existing handler that maps
+    provider failures to a 502 keeps working, while the API layer can still
+    single this out and answer 429 (cap reached) or 503 (spend unreadable).
+
+    ``reason`` distinguishes the two cases:
+        "cap_reached"      — the month's budget is genuinely exhausted
+        "spend_unavailable" — the spend could not be read, so the call was
+                              refused rather than allowed to run unmeasured
+    """
+
+    def __init__(self, message: str, *, reason: str = "cap_reached") -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 def _is_transient(exc: Exception) -> bool:
@@ -600,12 +618,49 @@ def _provider_name() -> str:
     return str(getattr(settings, "ai_provider", "unknown"))
 
 
+def _enforce_budget() -> None:
+    """Fail-closed hard stop before a paid provider call.
+
+    Local providers (stub, distilbert) are free and are never blocked, so dev
+    and tests keep working with the cap enabled. For a paid provider:
+
+      * spend >= cap           -> refuse (BudgetExceededError, reason cap_reached)
+      * spend unreadable       -> refuse (reason spend_unavailable) — an
+                                  unenforced budget is not a budget
+      * cap disabled (<= 0)    -> no check, explicit opt-out
+
+    Called from inside ``trace_call`` so a refused call is recorded as an
+    ``error`` trace with ``error_kind=BudgetExceededError``: the on-call
+    question "why did AI calls start failing" then has a durable answer.
+    """
+    if not budget.is_paid_provider(_provider_name()):
+        return
+    cap = budget.budget_cap_usd()
+    if cap is None:
+        return
+    try:
+        spend = budget.monthly_spend_usd()
+    except Exception as exc:  # noqa: BLE001 — DB failure must fail closed here
+        raise BudgetExceededError(
+            f"Monthly AI budget state is unreadable ({type(exc).__name__}: {exc}); "
+            "refusing paid call rather than spending unmeasured.",
+            reason="spend_unavailable",
+        ) from exc
+    if spend >= cap:
+        raise BudgetExceededError(
+            f"Monthly AI budget exhausted: ${spend:.4f} of ${cap:.2f} spent this "
+            "calendar month. Paid calls resume at the next month boundary.",
+            reason="cap_reached",
+        )
+
+
 def analyze_ticket(subject: str, description: str, ticket_id: int | None = None) -> AnalysisResult:
     provider = get_provider()
     model = _active_model(provider)
     t0 = time.perf_counter()
     with tracing.trace_call("triage", _provider_name(), model, ticket_id) as trace:
         try:
+            _enforce_budget()
             result = _call_with_retry(lambda: provider.analyze(subject, description))
         except Exception as exc:
             record_error()
@@ -630,6 +685,7 @@ def suggest_response(
     t0 = time.perf_counter()
     with tracing.trace_call("draft", _provider_name(), model, ticket_id) as trace:
         try:
+            _enforce_budget()
             draft = _call_with_retry(lambda: provider.suggest(subject, description, thread))
         except Exception as exc:
             record_error()

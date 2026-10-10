@@ -90,6 +90,14 @@ class Settings:
     # or "fallback" (return a neutral draft instead of the blocked one).
     ai_guardrail_mode: str = os.getenv("AI_GUARDRAIL_MODE", "reject")
 
+    # Monthly AI spend cap in USD — a hard stop checked before every paid
+    # provider call, summing the cost recorded on ai_call_traces for the
+    # current calendar month (see services/budget.py).
+    #   > 0   — that many USD per calendar month; reaching it refuses paid calls
+    #   <= 0  — cap disabled (explicit opt-out)
+    # Default is the $10/project/month approved in docs/DECISIONS.md D5/D8.
+    ai_monthly_budget_usd: float = float(os.getenv("AI_MONTHLY_BUDGET_USD", "10"))
+
     # Knowledge base directory for RAG
     knowledge_dir: str = os.getenv("KNOWLEDGE_DIR", "")
 

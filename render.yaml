@@ -20,8 +20,18 @@ services:
         value: production
       - key: ALEMBIC_MIGRATE
         value: "true"
+      # D5: production provider is OpenAI — pinned in the blueprint so nobody
+      # has to flip it in the dashboard. Boot-safe without a key: the provider
+      # is constructed lazily on the first AI call, so the service boots and
+      # /api/health stays green; triage/draft answer 502 with
+      # "OPENAI_API_KEY is not set" until the key below is filled in.
       - key: AI_PROVIDER
-        value: stub
+        value: openai
+      - key: OPENAI_API_KEY
+        sync: false
+      # Hard stop at the approved $10/month budget (DECISIONS.md D5/D8).
+      - key: AI_MONTHLY_BUDGET_USD
+        value: "10"
       - key: AI_EMBED_PROVIDER
         value: bow
       - key: DATABASE_URL

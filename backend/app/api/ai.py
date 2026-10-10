@@ -44,6 +44,23 @@ def _ticket_or_404(db: Session, ticket_id: int) -> Ticket:
     return ticket
 
 
+def _ai_error(exc: ai_service.AIProviderError) -> HTTPException:
+    """Map an AI-layer failure to an honest status code.
+
+    Budget refusals are not upstream failures: a spent cap is throttling
+    (429, retry next month) and an unreadable spend is "we cannot tell" (503).
+    Anything else stays 502 — the upstream provider or our parsing failed.
+    """
+    if isinstance(exc, ai_service.BudgetExceededError):
+        code = (
+            status.HTTP_503_SERVICE_UNAVAILABLE
+            if exc.reason == "spend_unavailable"
+            else status.HTTP_429_TOO_MANY_REQUESTS
+        )
+        return HTTPException(status_code=code, detail=str(exc))
+    return HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+
 @router.post("/{ticket_id}/ai/analyze", response_model=TicketOut)
 def analyze(
     ticket_id: int,
@@ -56,7 +73,7 @@ def analyze(
             ticket.subject, ticket.description, ticket_id=ticket.id
         )
     except ai_service.AIProviderError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+        raise _ai_error(exc)
 
     # Persist only after validation succeeded.
     ticket.category = result.category.value
@@ -92,7 +109,7 @@ def suggest(
             ticket.subject, ticket.description, thread, ticket_id=ticket.id
         )
     except ai_service.AIProviderError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+        raise _ai_error(exc)
     return AISuggestionOut(response=draft, based_on_similar=[s["ticket_id"] for s in similar])
 
 
