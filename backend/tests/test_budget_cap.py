@@ -39,7 +39,7 @@ class _SpyProvider(ai_service.StubProvider):
         return super().suggest(subject, description, thread)
 
 
-@pytest.fixture()
+@pytest.fixture
 def paid(monkeypatch):
     """Install paid-provider settings (openai + a $10 cap) for one test."""
 

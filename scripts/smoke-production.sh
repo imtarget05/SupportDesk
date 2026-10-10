@@ -20,6 +20,16 @@ echo
 
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$ORIGIN/" || echo 000)
 [ "$code" = "200" ]; chk "frontend reachable (Pages)" $? "($code)"
+title=$(curl -s --max-time 30 "$ORIGIN/" | grep -o '<title>[^<]*' | head -1 || true)
+case "$title" in
+  *SupportDesk*) chk "frontend identity" 0 "($title)" ;;
+  *) chk "frontend identity" 1 "(${title:-missing title})" ;;
+esac
+if [ -n "${SD_SMOKE_SOURCE_SHA:-}" ]; then
+  release_sha=$(curl -s --max-time 30 "$ORIGIN/release.json" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin).get("source_sha", ""))' 2>/dev/null || true)
+  [ "$release_sha" = "$SD_SMOKE_SOURCE_SHA" ]; chk "frontend revision" $? "(${release_sha:-missing})"
+fi
 
 body=""
 for attempt in 1 2 3; do
@@ -37,6 +47,12 @@ case "$acao" in
   *"$ORIGIN"*) chk "CORS preflight allows Pages origin" 0 "($acao)" ;;
   *) chk "CORS preflight allows Pages origin" 1 "(${acao:-missing ACAO — set CORS_ORIGINS on the kh02 Render service})" ;;
 esac
+
+legacy_acao=$(curl -s -D - -o /dev/null --max-time 30 -X OPTIONS "$API_URL/api/auth/login" \
+  -H "Origin: https://supportdesk-aht.pages.dev" -H "Access-Control-Request-Method: POST" \
+  -H "Access-Control-Request-Headers: content-type" \
+  | tr -d '\r' | grep -i '^access-control-allow-origin:' | head -1 || true)
+[ -z "$legacy_acao" ]; chk "CORS rejects legacy Pages origin" $? "(${legacy_acao:-no ACAO})"
 
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$API_URL/openapi.json" || echo 000)
 [ "$code" = "200" ]; chk "openapi.json" $? "($code)"
@@ -63,7 +79,11 @@ if [ -n "${SD_SMOKE_EMAIL:-}" ] && [ -n "${SD_SMOKE_PASSWORD:-}" ]; then
     echo "$list" | grep -q '"id"'; chk "list tickets (auth'd)" $?
   fi
 else
-  echo "SKIP | business flow (export SD_SMOKE_EMAIL + SD_SMOKE_PASSWORD to enable)"
+  if [ "${SD_REQUIRE_BUSINESS:-0}" = "1" ]; then
+    chk "business flow credentials" 1 "(set SD_SMOKE_EMAIL and SD_SMOKE_PASSWORD for the dedicated customer account)"
+  else
+    echo "SKIP | business flow (export SD_SMOKE_EMAIL + SD_SMOKE_PASSWORD to enable)"
+  fi
 fi
 
 echo

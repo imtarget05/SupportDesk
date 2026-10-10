@@ -42,7 +42,7 @@ jobs:
           file: backend/Dockerfile
           push: true
           tags: |
-            ghcr.io/imtarget05/supportdesk:${{ github.sha }}
+            ghcr.io/imtarget05/supportdesk:${{ github.event.workflow_run.head_sha || github.sha }}
             ghcr.io/imtarget05/supportdesk:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -56,15 +56,26 @@ jobs:
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           if [ -z "$RENDER_API_KEY" ] || [ -z "$RENDER_SERVICE_ID" ]; then
             echo "::error::RENDER_API_KEY / RENDER_SERVICE_ID secrets not configured — production backend cannot be redeployed. A skipped deploy must never count as success. Add both secrets (target the canonical kh02 service) or remove this job deliberately."
             exit 1
           fi
-          echo "Triggering redeploy on Render..."
+          SERVICE_HOST=$(curl -fsS -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}" \
+            | jq -r '.serviceDetails.url // empty')
+          if [ "$SERVICE_HOST" != "https://supportdesk-api-kh02.onrender.com" ]; then
+            echo "::error::Render service ID does not point to canonical kh02 (${SERVICE_HOST:-missing})" >&2
+            exit 1
+          fi
+          echo "Deploying exact commit ${SOURCE_SHA} on Render..."
+          PAYLOAD=$(jq -nc --arg sha "$SOURCE_SHA" '{commitId: $sha}')
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
-            -H "Authorization: Bearer ${RENDER_API_KEY}")
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            --data "$PAYLOAD")
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | sed '$d')
           if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "201" ] && [ "$HTTP_CODE" != "202" ]; then
@@ -73,6 +84,11 @@ jobs:
             exit 1
           fi
           DEPLOY_ID=$(echo "$BODY" | jq -r '.id // empty')
+          DEPLOY_COMMIT=$(echo "$BODY" | jq -r '.commit.id // empty')
+          if [ "$DEPLOY_COMMIT" != "$SOURCE_SHA" ]; then
+            echo "ERROR: Render accepted a different commit (${DEPLOY_COMMIT:-missing})" >&2
+            exit 1
+          fi
           if [ -n "$DEPLOY_ID" ]; then
             echo "deploy_id=${DEPLOY_ID}" >> "$GITHUB_OUTPUT"
           fi
@@ -82,6 +98,7 @@ jobs:
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           if [ -z "$RENDER_API_KEY" ] || [ -z "$RENDER_SERVICE_ID" ]; then
             echo "::error::Render secrets not configured — cannot poll production health. Failing loudly instead of skipping."
@@ -119,6 +136,13 @@ jobs:
               echo "✗ Deploy did not reach 'live' within 20 minutes"
               exit 1
             fi
+            DEPLOY_COMMIT=$(curl -s -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${DEPLOY_ID}" \
+              | jq -r '.commit.id // empty')
+            if [ "$DEPLOY_COMMIT" != "$SOURCE_SHA" ]; then
+              echo "✗ Live Render deploy commit mismatch (${DEPLOY_COMMIT:-missing})" >&2
+              exit 1
+            fi
           fi
 
           echo "Polling ${SERVICE_HOST}/api/health ..."
@@ -135,6 +159,7 @@ jobs:
 
   frontend:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    needs: backend
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -161,9 +186,32 @@ jobs:
           cd frontend
           npm run build
 
+      - name: Stamp source revision
+        env:
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          Path('frontend/dist/release.json').write_text(
+              json.dumps({'source_sha': os.environ['SOURCE_SHA']}) + '\n',
+              encoding='utf-8',
+          )
+          PY
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy frontend/dist --project-name ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'supportdesk' }} --branch=main
+
+      - name: Production connectivity and CORS smoke
+        env:
+          SD_SMOKE_SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          SD_REQUIRE_BUSINESS: "1"
+          SD_SMOKE_EMAIL: ${{ secrets.SD_SMOKE_EMAIL }}
+          SD_SMOKE_PASSWORD: ${{ secrets.SD_SMOKE_PASSWORD }}
+        run: bash scripts/smoke-production.sh

@@ -20,15 +20,21 @@ services:
         value: production
       - key: ALEMBIC_MIGRATE
         value: "true"
-      # D5: production provider is OpenAI — pinned in the blueprint so nobody
-      # has to flip it in the dashboard. Boot-safe without a key: the provider
-      # is constructed lazily on the first AI call, so the service boots and
-      # /api/health stays green; triage/draft answer 502 with
-      # "OPENAI_API_KEY is not set" until the key below is filled in.
+      # D5: production provider is Cloudflare Workers AI — pinned in the
+      # blueprint so nobody has to flip it in the dashboard. Boot-safe without
+      # credentials: the provider is constructed lazily on the first AI call,
+      # so the service boots and /api/health stays green; triage/draft answer
+      # 502 with the reason until the values below are filled in.
       - key: AI_PROVIDER
-        value: openai
-      - key: OPENAI_API_KEY
+        value: cloudflare
+      - key: CLOUDFLARE_ACCOUNT_ID
         sync: false
+      # API token needs the "Workers AI" Run permission; a token without it
+      # makes Cloudflare answer 10000 Authentication error.
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false
+      - key: CLOUDFLARE_MODEL
+        value: "@cf/meta/llama-3.1-8b-instruct"
       # Hard stop at the approved $10/month budget (DECISIONS.md D5/D8).
       - key: AI_MONTHLY_BUDGET_USD
         value: "10"

@@ -16,7 +16,7 @@ call, and what error the caller sees, belongs to ``ai_service``.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -56,7 +56,9 @@ def _month_start(now: datetime | None = None) -> datetime:
     the comparison must be naive too — an aware datetime against a naive column
     raises on Postgres and silently misbehaves on SQLite.
     """
-    now = (now or datetime.utcnow()).replace(tzinfo=None)
+    # datetime.utcnow() is deprecated (3.12+) and flagged by Sonar (S6903);
+    # the value is still normalised to naive UTC because the column is naive.
+    now = (now or datetime.now(timezone.utc)).replace(tzinfo=None)
     return datetime(now.year, now.month, 1)
 
 
