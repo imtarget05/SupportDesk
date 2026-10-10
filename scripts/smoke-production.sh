@@ -26,8 +26,16 @@ case "$title" in
   *) chk "frontend identity" 1 "(${title:-missing title})" ;;
 esac
 if [ -n "${SD_SMOKE_SOURCE_SHA:-}" ]; then
-  release_sha=$(curl -s --max-time 30 "$ORIGIN/release.json" \
-    | python3 -c 'import json,sys; print(json.load(sys.stdin).get("source_sha", ""))' 2>/dev/null || true)
+  # Cloudflare's edge can serve a stale (or not-yet-visible) release.json
+  # right after a deploy — CD run 38031263651 failed the revision check
+  # while the file was already live. Retry with cache revalidation.
+  release_sha=""
+  for attempt in 1 2 3 4 5 6; do
+    release_sha=$(curl -s --max-time 30 -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "$ORIGIN/release.json" \
+      | python3 -c 'import json,sys; print(json.load(sys.stdin).get("source_sha", ""))' 2>/dev/null || true)
+    [ "$release_sha" = "$SD_SMOKE_SOURCE_SHA" ] && break
+    [ "$attempt" -lt 6 ] && sleep 10
+  done
   [ "$release_sha" = "$SD_SMOKE_SOURCE_SHA" ]; chk "frontend revision" $? "(${release_sha:-missing})"
 fi
 
