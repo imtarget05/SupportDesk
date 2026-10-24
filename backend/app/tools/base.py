@@ -95,3 +95,25 @@ class TicketSearchArgs(_StrictArgs):
 
 class PolicyLookupArgs(_StrictArgs):
     topic: str = Field(..., min_length=2, max_length=200)
+
+
+class CustomerIdArgs(_StrictArgs):
+    customer_id: int = Field(..., gt=0, description="Numeric customer user ID")
+
+
+class ProposeRefundArgs(_StrictArgs):
+    ticket_id: int = Field(..., gt=0, description="Numeric ticket ID")
+    amount: float = Field(..., gt=0.0, le=10000.0, description="Refund amount in USD")
+    reason: str = Field(..., min_length=5, max_length=500, description="Business rationale for refund")
+
+
+class ProposeEscalationArgs(_StrictArgs):
+    ticket_id: int = Field(..., gt=0, description="Numeric ticket ID")
+    escalation_level: int = Field(..., ge=1, le=3, description="Target escalation level (1-3)")
+    reason: str = Field(..., min_length=5, max_length=500, description="Reason for escalation")
+
+
+class ProposeExternalReplyArgs(_StrictArgs):
+    ticket_id: int = Field(..., gt=0, description="Numeric ticket ID")
+    content: str = Field(..., min_length=5, max_length=2000, description="Proposed customer message content")
+    reason: str = Field(..., min_length=5, max_length=500, description="Rationale for message")

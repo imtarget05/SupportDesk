@@ -90,6 +90,16 @@ class KeywordPlanner:
         ("get_ticket_history", ("already told", "history", "previous message")),
     )
 
+    def __init__(
+        self,
+        ticket_id: int | None = None,
+        customer_id: int | None = None,
+        enable_proposals: bool = False,
+    ) -> None:
+        self.ticket_id = ticket_id
+        self.customer_id = customer_id
+        self.enable_proposals = enable_proposals
+
     def next_calls(
         self, subject: str, description: str, transcript: list[str]
     ) -> list[ToolCall]:
@@ -98,6 +108,41 @@ class KeywordPlanner:
             return []
         text = f"{subject} {description}".lower()
         calls: list[ToolCall] = []
+
+        if self.enable_proposals and self.ticket_id is not None:
+            if any(cue in text for cue in ("refund", "charged twice", "overcharge", "money back")):
+                calls.append(
+                    ToolCall(
+                        name="propose_refund",
+                        arguments={
+                            "ticket_id": self.ticket_id,
+                            "amount": 50.0,
+                            "reason": "Customer reported billing discrepancy or duplicate charge",
+                        },
+                    )
+                )
+            if any(cue in text for cue in ("escalate", "supervisor", "tier 2")):
+                calls.append(
+                    ToolCall(
+                        name="propose_escalation",
+                        arguments={
+                            "ticket_id": self.ticket_id,
+                            "escalation_level": 2,
+                            "reason": "Customer requested tier 2 supervisor escalation",
+                        },
+                    )
+                )
+
+        if self.customer_id is not None and any(
+            cue in text for cue in ("profile", "vip", "customer history", "tier", "account history")
+        ):
+            calls.append(
+                ToolCall(
+                    name="get_customer_history",
+                    arguments={"customer_id": self.customer_id},
+                )
+            )
+
         for name, cues in self.CUES:
             if any(cue in text for cue in cues):
                 calls.append(ToolCall(name=name, arguments={"query": text[:200]}))

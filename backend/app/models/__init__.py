@@ -2,6 +2,7 @@ from app.models.ai import AIEvaluation, AICallTrace, AIPrediction, TicketEmbeddi
 from app.models.audit import AuditEvent
 from app.models.message import Message
 from app.models.outbox import OutboxEvent, ProcessedEvent
+from app.models.proposal import ActionProposal
 from app.models.ticket import Ticket
 from app.models.user import User
 
@@ -16,4 +17,5 @@ __all__ = [
     "AIPrediction",
     "AIEvaluation",
     "AICallTrace",
+    "ActionProposal",
 ]

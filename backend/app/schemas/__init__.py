@@ -14,6 +14,11 @@ from app.schemas.auth import (
     UserPublic,
 )
 from app.schemas.dashboard import DashboardStats
+from app.schemas.proposals import (
+    ProposalCreateIn,
+    ProposalDecisionIn,
+    ProposalOut,
+)
 from app.schemas.tickets import (
     MessageCreate,
     MessageOut,

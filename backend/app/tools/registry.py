@@ -11,10 +11,14 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models import Ticket
+from app.models import Ticket, User
 from app.tools.base import (
     BaseTool,
+    CustomerIdArgs,
     PolicyLookupArgs,
+    ProposeEscalationArgs,
+    ProposeExternalReplyArgs,
+    ProposeRefundArgs,
     TicketIdArgs,
     TicketSearchArgs,
     ToolError,
@@ -132,6 +136,183 @@ class OrderLookupTool(BaseTool):
         self.db = db
 
 
+class CustomerHistoryTool(BaseTool):
+    name = "get_customer_history"
+    description = (
+        "Get customer profile, past ticket count, resolution history, and SLA tier. "
+        "Use this to understand user context and VIP status."
+    )
+    args_model = CustomerIdArgs
+
+    @property
+    def handler(self):
+        def run(args: CustomerIdArgs) -> dict[str, Any]:
+            user = self.db.get(User, args.customer_id)
+            if user is None:
+                raise ToolError(f"customer {args.customer_id} not found")
+            tickets = (
+                self.db.query(Ticket)
+                .filter(Ticket.customer_id == args.customer_id)
+                .all()
+            )
+            total = len(tickets)
+            open_count = sum(
+                1 for t in tickets if t.status in ("open", "in_progress", "pending")
+            )
+            resolved_count = sum(
+                1 for t in tickets if t.status in ("resolved", "closed")
+            )
+            tier = "vip" if total >= 5 else "standard"
+            return {
+                "customer_id": user.id,
+                "name": user.name,
+                "email": user.email,
+                "total_tickets": total,
+                "open_tickets": open_count,
+                "resolved_tickets": resolved_count,
+                "sla_tier": tier,
+                "recent_tickets": [
+                    {
+                        "id": t.id,
+                        "subject": t.subject,
+                        "status": t.status,
+                        "priority": t.priority,
+                    }
+                    for t in tickets[-3:]
+                ],
+            }
+
+        return run
+
+    def __init__(self, db: Session) -> None:
+        self.db = db
+
+
+class ProposeRefundTool(BaseTool):
+    name = "propose_refund"
+    description = (
+        "Propose a customer refund for human approval. Does NOT issue the refund directly. "
+        "A human operator must approve this action."
+    )
+    args_model = ProposeRefundArgs
+    read_only = False
+
+    @property
+    def handler(self):
+        def run(args: ProposeRefundArgs) -> dict[str, Any]:
+            ticket = _ticket_or_error(self.db, args.ticket_id)
+            from app.services import hitl_service
+
+            proposal = hitl_service.create_proposal(
+                self.db,
+                ticket_id=ticket.id,
+                action_type="refund",
+                payload={"amount": args.amount, "reason": args.reason},
+                reasoning=args.reason,
+                confidence=1.0,
+                created_by="ai_agent",
+            )
+            return {
+                "proposal_id": proposal.id,
+                "action_type": "refund",
+                "status": proposal.status,
+                "amount": args.amount,
+                "message": (
+                    "Refund proposal created and queued for human approval. "
+                    "No money was transferred."
+                ),
+            }
+
+        return run
+
+    def __init__(self, db: Session) -> None:
+        self.db = db
+
+
+class ProposeEscalationTool(BaseTool):
+    name = "propose_escalation"
+    description = (
+        "Propose escalating a ticket to a higher tier (1-3) for human approval. "
+        "Does NOT mutate ticket state directly."
+    )
+    args_model = ProposeEscalationArgs
+    read_only = False
+
+    @property
+    def handler(self):
+        def run(args: ProposeEscalationArgs) -> dict[str, Any]:
+            ticket = _ticket_or_error(self.db, args.ticket_id)
+            from app.services import hitl_service
+
+            proposal = hitl_service.create_proposal(
+                self.db,
+                ticket_id=ticket.id,
+                action_type="escalate",
+                payload={
+                    "escalation_level": args.escalation_level,
+                    "reason": args.reason,
+                },
+                reasoning=args.reason,
+                confidence=1.0,
+                created_by="ai_agent",
+            )
+            return {
+                "proposal_id": proposal.id,
+                "action_type": "escalate",
+                "status": proposal.status,
+                "target_level": args.escalation_level,
+                "message": (
+                    "Escalation proposal created and queued for human approval. "
+                    "Ticket was not modified."
+                ),
+            }
+
+        return run
+
+    def __init__(self, db: Session) -> None:
+        self.db = db
+
+
+class ProposeExternalReplyTool(BaseTool):
+    name = "propose_external_reply"
+    description = (
+        "Propose an outbound customer message for human approval. "
+        "Does NOT send the message directly."
+    )
+    args_model = ProposeExternalReplyArgs
+    read_only = False
+
+    @property
+    def handler(self):
+        def run(args: ProposeExternalReplyArgs) -> dict[str, Any]:
+            ticket = _ticket_or_error(self.db, args.ticket_id)
+            from app.services import hitl_service
+
+            proposal = hitl_service.create_proposal(
+                self.db,
+                ticket_id=ticket.id,
+                action_type="external_reply",
+                payload={"content": args.content, "reason": args.reason},
+                reasoning=args.reason,
+                confidence=1.0,
+                created_by="ai_agent",
+            )
+            return {
+                "proposal_id": proposal.id,
+                "action_type": "external_reply",
+                "status": proposal.status,
+                "message": (
+                    "External reply proposal queued for human approval. "
+                    "No message was sent."
+                ),
+            }
+
+        return run
+
+    def __init__(self, db: Session) -> None:
+        self.db = db
+
+
 class ToolRegistry:
     """Allowlist of callable tools, with an audit trail per invocation.
 
@@ -186,11 +367,34 @@ class ToolRegistry:
         )
 
 
-def build_registry(db: Session) -> ToolRegistry:
-    """Registry with every read-only tool bound to this database session."""
+def build_registry(
+    db: Session,
+    *,
+    include_proposals: bool = False,
+    include_customer_history: bool = False,
+) -> ToolRegistry:
+    """Registry with tools bound to this database session.
+
+    By default, returns the 4 core read-only lookup tools required by MCP and
+    standard contracts. Set include_proposals=True and include_customer_history=True
+    (or use build_hitl_registry) to expose action proposals and extended history.
+    """
     registry = ToolRegistry()
     registry.register(TicketHistoryTool(db))
     registry.register(SimilarTicketsTool(db))
     registry.register(KnowledgeSearchTool())
     registry.register(OrderLookupTool(db))
+    if include_customer_history:
+        registry.register(CustomerHistoryTool(db))
+    if include_proposals:
+        registry.register(ProposeRefundTool(db))
+        registry.register(ProposeEscalationTool(db))
+        registry.register(ProposeExternalReplyTool(db))
     return registry
+
+
+def build_hitl_registry(db: Session) -> ToolRegistry:
+    """Registry with all tools including read-only lookups and proposal tools."""
+    return build_registry(
+        db, include_proposals=True, include_customer_history=True
+    )

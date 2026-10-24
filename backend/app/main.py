@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from app.api import auth, automation, dashboard, sla, tickets, webhooks
+from app.api import auth, automation, dashboard, proposals, sla, tickets, webhooks
 from app.api.ai import router as ai_router
 from app.api.metrics import router as metrics_router
 from app.config import settings
@@ -94,6 +94,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(auth.router)
     app.include_router(tickets.router)
+    app.include_router(proposals.router)
     app.include_router(webhooks.router)
     app.include_router(ai_router)
     app.include_router(automation.router)
